@@ -1,0 +1,9 @@
+venv/
+pycache/
+*.pyc
+db.sqlite3
+.env
+.DS_Store
+financeiro-frontend/node_modules/
+financeiro-frontend/.next/
+financeiro-frontend/.env.local
