@@ -22,7 +22,6 @@ RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
 if RENDER_EXTERNAL_HOSTNAME:
     ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 else:
-    # Fallback para permitir tudo se a variável não estiver definida (cuidado em produção)
     ALLOWED_HOSTS.append('*')
 
 if RENDER_EXTERNAL_HOSTNAME:
@@ -58,6 +57,11 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
 ]
 
+# Adiciona a URL do frontend em produção se estiver definida
+# (Recomendado adicionar FRONTEND_URL nas variáveis de ambiente do Render)
+if 'FRONTEND_URL' in os.environ:
+    CORS_ALLOWED_ORIGINS.append(os.environ['FRONTEND_URL'])
+
 ROOT_URLCONF = 'config.urls'
 
 TEMPLATES = [
@@ -79,7 +83,7 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 # --- BANCO DE DADOS ---
 
-# Configuração Padrão (Local)
+# Configuração Padrão (Local - Desenvolvimento)
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
@@ -99,30 +103,32 @@ DATABASES = {
     }
 }
 
-# --- CONFIGURAÇÃO RENDER (Lógica Inteligente) ---
+# --- CONFIGURAÇÃO RENDER (Produção) ---
 
-# Se a variável DATABASE_URL existe, significa que estamos no ambiente de nuvem
 if 'DATABASE_URL' in os.environ:
-    # 1. Configura o Banco Principal (Financeiro) usando a URL padrão do Render
+    # 1. Configura o Banco do Financeiro (Onde salvamos despesas e fechamentos)
+    # Pega automaticamente da variável DATABASE_URL do serviço
     DATABASES['default'] = dj_database_url.config(conn_max_age=600, ssl_require=True)
     
-    # 2. Configura o Banco Secundário (Vendas)
+    # 2. Configura o Banco de Vendas (Externo/Real)
     if 'VENDAS_DATABASE_URL' in os.environ:
-        # CONEXÃO REAL: Se definimos a URL externa, conecta no banco de produção das vendas
+        # Se você adicionou a variável no Passo 2, ele entra aqui!
+        # Conecta diretamente no banco de produção das lojas.
         DATABASES['vendas_db'] = dj_database_url.parse(
             os.environ['VENDAS_DATABASE_URL'],
             conn_max_age=600,
-            ssl_require=False
+            ssl_require=True
         )
     else:
-        # FALLBACK: Se não existir a variável, usa o mesmo banco do financeiro
-        # (Útil se você restaurou o backup dentro do banco financeiro_db no Render)
+        # Se esqueceu de colocar a variável, ele usa o default como fallback
+        # (Isso evita que o sistema caia, mas os dados de vendas estarão vazios se não houver backup)
         DATABASES['vendas_db'] = DATABASES['default']
 
-# Segurança: Se estamos no Render mas a DATABASE_URL não apareceu, avisamos
+# Segurança extra: Se estamos no Render mas nem o banco principal foi achado
 elif 'RENDER' in os.environ:
-    raise ValueError("ERRO CRÍTICO: A variável de ambiente DATABASE_URL não foi definida no Render! Adicione-a na aba Environment.")
+    raise ValueError("ERRO CRÍTICO: DATABASE_URL não encontrada no Render.")
 
+# Router para impedir que o Financeiro tente criar tabelas no banco de Vendas
 DATABASE_ROUTERS = ['config.db_routers.VendasRouter']
 
 # --- SENHAS E I18N ---
