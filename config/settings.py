@@ -25,8 +25,9 @@ else:
     ALLOWED_HOSTS.append('*')
 
 # Proteção CSRF para o domínio do Render
+CSRF_TRUSTED_ORIGINS = []
 if RENDER_EXTERNAL_HOSTNAME:
-    CSRF_TRUSTED_ORIGINS = [f'https://{RENDER_EXTERNAL_HOSTNAME}']
+    CSRF_TRUSTED_ORIGINS.append(f'https://{RENDER_EXTERNAL_HOSTNAME}')
 
 # --- APLICAÇÃO ---
 INSTALLED_APPS = [

@@ -111,6 +111,17 @@ class DespesaOut(Schema):
     data_competencia: date
     categoria: CategoriaOut = None 
 
+class DespesaDetailOut(DespesaOut):
+    valor_bruto: Decimal
+    valor_desconto: Decimal
+    valor_acrescimo: Decimal
+    data_vencimento: date
+    fornecedor_id: Optional[int] = None
+    loja_id_externo: int
+
+class StatusUpdate(Schema):
+    status: str
+
 # --- Schemas de Fechamento ---
 class FechamentoOut(Schema):
     loja_id: int = Field(..., alias="loja_id_externo") 
@@ -191,6 +202,35 @@ def listar_despesas(
         
     return qs
 
+@router.get("/despesas/{despesa_id}", response=DespesaDetailOut)
+def obter_despesa(request, despesa_id: int):
+    """Retorna detalhes de uma despesa."""
+    return get_object_or_404(ContaPagar, id=despesa_id)
+
+@router.patch("/despesas/{despesa_id}/status", response=DespesaOut)
+def atualizar_status_despesa(request, despesa_id: int, payload: StatusUpdate):
+    """Atualiza o status da despesa, validando fechamento."""
+    despesa = get_object_or_404(ContaPagar, id=despesa_id)
+
+    # Validar fechamento
+    fechamento = FechamentoMensal.objects.filter(
+        loja_id_externo=despesa.loja_id_externo,
+        mes=despesa.data_competencia.month,
+        ano=despesa.data_competencia.year
+    ).first()
+
+    if fechamento and fechamento.status == 'CONCLUIDO':
+        raise HttpError(400, f"Não é possível alterar despesa em mês fechado ({despesa.data_competencia.strftime('%m/%Y')}).")
+
+    # Validar se o status existe nas opções do model
+    opcoes_status = dict(ContaPagar.STATUS_CHOICES).keys()
+    if payload.status not in opcoes_status:
+        raise HttpError(400, f"Status inválido. Opções: {list(opcoes_status)}")
+
+    despesa.status = payload.status
+    despesa.save()
+    return despesa
+
 @router.post("/despesas/", response=DespesaOut)
 def criar_despesa(request, payload: DespesaIn):
     """Cria uma nova conta a pagar."""
@@ -221,6 +261,26 @@ def criar_despesa(request, payload: DespesaIn):
 def editar_despesa(request, despesa_id: int, payload: DespesaIn):
     """Atualiza uma despesa e recalcula valores."""
     despesa = get_object_or_404(ContaPagar, id=despesa_id)
+
+    # Validar fechamento (Data Atual)
+    fechamento_atual = FechamentoMensal.objects.filter(
+        loja_id_externo=despesa.loja_id_externo,
+        mes=despesa.data_competencia.month,
+        ano=despesa.data_competencia.year
+    ).first()
+
+    if fechamento_atual and fechamento_atual.status == 'CONCLUIDO':
+        raise HttpError(400, f"Não é possível editar despesa de mês fechado ({despesa.data_competencia.strftime('%m/%Y')}).")
+
+    # Validar fechamento (Nova Data - se mudou)
+    if payload.data_competencia != despesa.data_competencia:
+        fechamento_novo = FechamentoMensal.objects.filter(
+            loja_id_externo=payload.loja_id,
+            mes=payload.data_competencia.month,
+            ano=payload.data_competencia.year
+        ).first()
+        if fechamento_novo and fechamento_novo.status == 'CONCLUIDO':
+            raise HttpError(400, f"Não é possível mover despesa para mês fechado ({payload.data_competencia.strftime('%m/%Y')}).")
 
     if not CategoriaDespesa.objects.filter(id=payload.categoria_id).exists():
         raise HttpError(404, f"Categoria {payload.categoria_id} não encontrada.")
