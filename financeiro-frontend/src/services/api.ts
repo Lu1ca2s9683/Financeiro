@@ -1,6 +1,10 @@
 // src/services/api.ts
 
-const API_BASE_URL = 'http://127.0.0.1:8000/api/financeiro';
+// Define a URL base. Prioriza a variável de ambiente.
+// Se não houver variável (ex: desenvolvimento local sem .env), usa localhost.
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api/financeiro';
+
+console.log('🔗 API_BASE_URL configurada:', API_BASE_URL); // Debug no console do navegador
 
 export interface Categoria {
   id: number;
@@ -24,14 +28,13 @@ export interface PerfilTaxa {
   taxas: TaxaItem[];
 }
 
-// ... (Interfaces Despesa e Fechamento mantidas) ...
 export interface Despesa {
   id: number;
   descricao: string;
   valor_liquido: number;
   status: string;
   data_competencia: string;
-  categoria?: { id: number; nome: string }; // Opcional dependendo do backend
+  categoria?: { id: number; nome: string }; 
 }
 
 export interface Fechamento {
@@ -93,7 +96,7 @@ export const api = {
     return res.json();
   },
 
-  // --- Despesas e Fechamento (Mantidos) ---
+  // --- Despesas e Fechamento ---
   getFechamento: async (lojaId: number, mes: number, ano: number): Promise<Fechamento> => {
     const res = await fetch(`${API_BASE_URL}/fechamento/calcular/${lojaId}/${mes}/${ano}`, {
       method: 'POST',
@@ -104,13 +107,16 @@ export const api = {
     return res.json();
   },
 
+  // Método que aplica o filtro
   getDespesas: async (lojaId: number, mes?: number, ano?: number): Promise<Despesa[]> => {
     let url = `${API_BASE_URL}/despesas/?loja_id=${lojaId}`;
     
-    // Adiciona o filtro na URL se os parâmetros existirem
+    // Adiciona os filtros na URL se os parâmetros existirem
     if (mes && ano) {
       url += `&mes=${mes}&ano=${ano}`;
     }
+    
+    console.log("📡 Buscando despesas na URL:", url);
     
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) throw new Error('Falha ao buscar despesas');
