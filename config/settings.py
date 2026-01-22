@@ -24,6 +24,7 @@ if RENDER_EXTERNAL_HOSTNAME:
 else:
     ALLOWED_HOSTS.append('*')
 
+# Proteção CSRF para o domínio do Render
 if RENDER_EXTERNAL_HOSTNAME:
     CSRF_TRUSTED_ORIGINS = [f'https://{RENDER_EXTERNAL_HOSTNAME}']
 
@@ -52,15 +53,21 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+# --- CONFIGURAÇÃO CORS (CRUCIAL) ---
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
 
-# Adiciona a URL do frontend em produção se estiver definida
-# (Recomendado adicionar FRONTEND_URL nas variáveis de ambiente do Render)
+# Adiciona a URL do Frontend em produção se ela estiver definida nas variáveis de ambiente
+# (Adicione a variável FRONTEND_URL no Render do Backend com o valor: https://financeiro-frontend-tose.onrender.com)
 if 'FRONTEND_URL' in os.environ:
     CORS_ALLOWED_ORIGINS.append(os.environ['FRONTEND_URL'])
+    CSRF_TRUSTED_ORIGINS.append(os.environ['FRONTEND_URL'])
+else:
+    # Fallback manual caso esqueça a variável (RECOMENDADO COLOCAR A VARIÁVEL)
+    CORS_ALLOWED_ORIGINS.append("https://financeiro-frontend-tose.onrender.com")
+    CSRF_TRUSTED_ORIGINS.append("https://financeiro-frontend-tose.onrender.com")
 
 ROOT_URLCONF = 'config.urls'
 
@@ -104,31 +111,27 @@ DATABASES = {
 }
 
 # --- CONFIGURAÇÃO RENDER (Produção) ---
-
 if 'DATABASE_URL' in os.environ:
-    # 1. Configura o Banco do Financeiro (Onde salvamos despesas e fechamentos)
-    # Pega automaticamente da variável DATABASE_URL do serviço
+    # 1. Banco Principal (Financeiro) - URL interna do Render
     DATABASES['default'] = dj_database_url.config(conn_max_age=600, ssl_require=True)
     
-    # 2. Configura o Banco de Vendas (Externo/Real)
+    # 2. Banco Secundário (Vendas)
     if 'VENDAS_DATABASE_URL' in os.environ:
-        # Se você adicionou a variável no Passo 2, ele entra aqui!
-        # Conecta diretamente no banco de produção das lojas.
+        # Conecta no banco real de vendas
         DATABASES['vendas_db'] = dj_database_url.parse(
             os.environ['VENDAS_DATABASE_URL'],
             conn_max_age=600,
             ssl_require=True
         )
     else:
-        # Se esqueceu de colocar a variável, ele usa o default como fallback
-        # (Isso evita que o sistema caia, mas os dados de vendas estarão vazios se não houver backup)
+        # Fallback: Usa o mesmo banco do financeiro (se fez restore lá)
         DATABASES['vendas_db'] = DATABASES['default']
 
-# Segurança extra: Se estamos no Render mas nem o banco principal foi achado
+# Segurança extra
 elif 'RENDER' in os.environ:
     raise ValueError("ERRO CRÍTICO: DATABASE_URL não encontrada no Render.")
 
-# Router para impedir que o Financeiro tente criar tabelas no banco de Vendas
+# Router para impedir escritas no banco de Vendas
 DATABASE_ROUTERS = ['config.db_routers.VendasRouter']
 
 # --- SENHAS E I18N ---
