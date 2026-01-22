@@ -26,7 +26,18 @@ SECRET_KEY = 'django-insecure-h!g22_b^t+ze=yhnbi3%xc2!t1i8f%=h$@w1b4z9(x9o9_cjn5
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+
+RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
+if RENDER_EXTERNAL_HOSTNAME:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
+else:
+    # Fallback para permitir tudo se a variável não estiver definida (cuidado em produção)
+    ALLOWED_HOSTS.append('*')
+
+# Necessário para formulários e API POST funcionarem via HTTPS no Render
+if RENDER_EXTERNAL_HOSTNAME:
+    CSRF_TRUSTED_ORIGINS = [f'https://{RENDER_EXTERNAL_HOSTNAME}']
 
 
 # Application definition
