@@ -146,12 +146,14 @@ USE_I18N = True
 USE_TZ = True
 
 
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.0/howto/static-files/
-
+# --- ARQUIVOS ESTÁTICOS (CORREÇÃO AQUI) ---
 STATIC_URL = 'static/'
 
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
+# Define a pasta onde os estáticos serão coletados (Obrigatório para o collectstatic funcionar)
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Configuração do WhiteNoise para servir os arquivos em produção
+if not DEBUG:
+    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
