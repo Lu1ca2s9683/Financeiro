@@ -119,6 +119,11 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
     });
+
+    if (res.status === 403) {
+      throw new Error('FORBIDDEN_DEVICE');
+    }
+
     if (!res.ok) throw new Error('Falha no login');
     return res.json();
   },

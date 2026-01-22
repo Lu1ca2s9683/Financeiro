@@ -24,7 +24,11 @@ export default function LoginPage() {
       login(response.token);
     } catch (err: any) {
       console.error(err);
-      setError('Credenciais inválidas ou erro no servidor.');
+      if (err.message === 'FORBIDDEN_DEVICE') {
+        setError('Acesso não autorizado neste dispositivo. Este dispositivo ainda não foi liberado pelo administrador global. Após a liberação, tente novamente.');
+      } else {
+        setError('Credenciais inválidas ou erro no servidor.');
+      }
     } finally {
       setLoading(false);
     }
