@@ -34,7 +34,21 @@ export interface Despesa {
   valor_liquido: number;
   status: string;
   data_competencia: string;
-  categoria?: { id: number; nome: string }; 
+  categoria?: { id: number; nome: string };
+  dias_para_vencimento?: number;
+  is_vencendo?: boolean;
+  is_atrasado?: boolean;
+}
+
+export interface DashboardResumo {
+  percentual_pago: number;
+  percentual_atrasado: number;
+  percentual_previsto: number;
+  total_despesas_mes: number;
+  despesas_vencendo_semana: number;
+  despesas_atrasadas: number;
+  saude_financeira: 'SAUDAVEL' | 'ATENCAO' | 'CRITICO';
+  mensagem_assistente: string;
 }
 
 export interface DespesaDetail extends Despesa {
@@ -106,6 +120,12 @@ export const api = {
   },
 
   // --- Despesas e Fechamento ---
+  getDashboardResumo: async (lojaId: number, mes: number, ano: number): Promise<DashboardResumo> => {
+    const res = await fetch(`${API_BASE_URL}/dashboard/resumo/${lojaId}/${mes}/${ano}`);
+    if (!res.ok) throw new Error('Falha ao buscar resumo do dashboard');
+    return res.json();
+  },
+
   getFechamento: async (lojaId: number, mes: number, ano: number): Promise<Fechamento> => {
     const res = await fetch(`${API_BASE_URL}/fechamento/calcular/${lojaId}/${mes}/${ano}`, {
       method: 'POST',
