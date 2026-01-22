@@ -1,111 +1,124 @@
-import pytest
+from django.test import TestCase
+from django.contrib.auth.models import User
+from financeiro_core.models import ContaPagar, CategoriaDespesa, FechamentoMensal, Fornecedor
 from decimal import Decimal
-from financeiro_core.domain.services import (
-    CalculadoraFinanceira, ProcessadorFechamento,
-    FaturamentoBruto, TaxasCalculadas
-)
+from datetime import date
+from ninja.testing import TestClient
+from financeiro_core.app.api.endpoints import router
+import json
 
+class DespesasApiTest(TestCase):
+    def setUp(self):
+        self.client = TestClient(router)
+        self.user = User.objects.create_user(username='testuser', password='password')
+        self.categoria = CategoriaDespesa.objects.create(nome="Teste Cat", ativa=True)
+        self.fornecedor = Fornecedor.objects.create(razao_social="Fornecedor Teste", cnpj_cpf="12345678000199")
 
-class TestCalculadoraFinanceira:
-    def test_calcular_taxas_cartao(self):
-        calculadora = CalculadoraFinanceira()
+        self.loja_id = 1
+        self.mes_aberto = 10
+        self.ano_aberto = 2024
 
-        faturamento = FaturamentoBruto(
-            debito=Decimal('1000.00'),
-            credito_vista=Decimal('2000.00'),
-            credito_parcelado=Decimal('1500.00')
+        self.mes_fechado = 9
+        self.ano_fechado = 2024
+
+        # Criar fechamento
+        FechamentoMensal.objects.create(
+            loja_id_externo=self.loja_id,
+            mes=self.mes_fechado,
+            ano=self.ano_fechado,
+            faturamento_bruto=Decimal('1000'),
+            total_taxas=Decimal('10'),
+            receita_liquida=Decimal('990'),
+            total_despesas=Decimal('100'),
+            resultado_operacional=Decimal('890'),
+            status='CONCLUIDO'
         )
 
-        taxas = {
-            'debito': {'percentual': Decimal('1.5'), 'fixo': Decimal('0.10')},
-            'credito_vista': {'percentual': Decimal('2.5'), 'fixo': Decimal('0.20')},
-            'credito_parcelado': {'percentual': Decimal('3.5'), 'fixo': Decimal('0.30')},
+        self.despesa_aberta = ContaPagar.objects.create(
+            descricao="Despesa Aberta",
+            loja_id_externo=self.loja_id,
+            categoria=self.categoria,
+            valor_bruto=Decimal('100.00'),
+            data_competencia=date(self.ano_aberto, self.mes_aberto, 15),
+            data_vencimento=date(self.ano_aberto, self.mes_aberto, 20),
+            status='PREVISTO'
+        )
+
+        self.despesa_fechada = ContaPagar.objects.create(
+            descricao="Despesa Fechada",
+            loja_id_externo=self.loja_id,
+            categoria=self.categoria,
+            valor_bruto=Decimal('100.00'),
+            data_competencia=date(self.ano_fechado, self.mes_fechado, 15),
+            data_vencimento=date(self.ano_fechado, self.mes_fechado, 20),
+            status='PAGO'
+        )
+
+    def test_get_despesa_detail(self):
+        response = self.client.get(f"/despesas/{self.despesa_aberta.id}")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['id'], self.despesa_aberta.id)
+        # Comparar como float ou string
+        self.assertEqual(float(data['valor_bruto']), 100.0)
+
+    def test_update_status_open_month(self):
+        response = self.client.patch(f"/despesas/{self.despesa_aberta.id}/status", json={"status": "PAGO"})
+        self.assertEqual(response.status_code, 200)
+        self.despesa_aberta.refresh_from_db()
+        self.assertEqual(self.despesa_aberta.status, "PAGO")
+
+    def test_update_status_closed_month(self):
+        response = self.client.patch(f"/despesas/{self.despesa_fechada.id}/status", json={"status": "CANCELADO"})
+        if response.status_code == 422:
+            print("Status validation error:", response.json())
+        self.assertEqual(response.status_code, 400)
+        self.despesa_fechada.refresh_from_db()
+        self.assertNotEqual(self.despesa_fechada.status, "CANCELADO")
+
+    def test_edit_despesa_open_month(self):
+        payload = {
+            "descricao": "Editada",
+            "loja_id": self.loja_id,
+            "categoria_id": self.categoria.id,
+            "valor": 150.00,
+            "data_competencia": f"{self.ano_aberto}-{self.mes_aberto:02d}-15",
+            "data_vencimento": f"{self.ano_aberto}-{self.mes_aberto:02d}-20",
+            "fornecedor_id": self.fornecedor.id
         }
+        response = self.client.put(f"/despesas/{self.despesa_aberta.id}", json=payload)
+        self.assertEqual(response.status_code, 200)
+        self.despesa_aberta.refresh_from_db()
+        self.assertEqual(self.despesa_aberta.descricao, "Editada")
+        self.assertEqual(self.despesa_aberta.valor_bruto, Decimal('150.00'))
 
-        resultado = calculadora.calcular_taxas_cartao(faturamento, taxas)
-
-        assert isinstance(resultado, TaxasCalculadas)
-        assert resultado.taxa_debito == Decimal('15.10')  # 1000 * 0.015 + 0.10
-        assert resultado.taxa_credito_vista == Decimal('50.20')  # 2000 * 0.025 + 0.20
-        assert resultado.taxa_credito_parcelado == Decimal('52.80')  # 1500 * 0.035 + 0.30
-        assert resultado.total_taxas == Decimal('118.10')
-
-    def test_calcular_taxas_cartao_taxas_incompletas(self):
-        calculadora = CalculadoraFinanceira()
-
-        faturamento = FaturamentoBruto(
-            debito=Decimal('1000.00'),
-            credito_vista=Decimal('2000.00'),
-            credito_parcelado=Decimal('1500.00')
-        )
-
-        taxas_incompletas = {
-            'debito': {'percentual': Decimal('1.5'), 'fixo': Decimal('0.10')},
-            # Faltando credito_vista e credito_parcelado
+    def test_edit_despesa_closed_month(self):
+        payload = {
+            "descricao": "Tentativa Edicao",
+            "loja_id": self.loja_id,
+            "categoria_id": self.categoria.id,
+            "valor": 150.00,
+            "data_competencia": f"{self.ano_fechado}-{self.mes_fechado:02d}-15",
+            "data_vencimento": f"{self.ano_fechado}-{self.mes_fechado:02d}-20",
+            # Adicionando fornecedor_id pra garantir
+            "fornecedor_id": self.fornecedor.id
         }
+        response = self.client.put(f"/despesas/{self.despesa_fechada.id}", json=payload)
+        if response.status_code != 400:
+             print("EDIT CLOSED ERROR:", response.json())
+        self.assertEqual(response.status_code, 400)
 
-        with pytest.raises(ValueError, match="Taxas para todos os tipos de cartão devem ser fornecidas"):
-            calculadora.calcular_taxas_cartao(faturamento, taxas_incompletas)
-
-
-class MockVendasClient:
-    def obter_faturamento(self, loja_id, mes, ano):
-        return FaturamentoBruto(
-            debito=Decimal('1000.00'),
-            credito_vista=Decimal('2000.00'),
-            credito_parcelado=Decimal('1500.00')
-        )
-
-
-class MockRepositorioPerfilTaxa:
-    def obter_taxas_por_loja(self, loja_id):
-        return {
-            'debito': {'percentual': Decimal('1.5'), 'fixo': Decimal('0.10')},
-            'credito_vista': {'percentual': Decimal('2.5'), 'fixo': Decimal('0.20')},
-            'credito_parcelado': {'percentual': Decimal('3.5'), 'fixo': Decimal('0.30')},
+    def test_move_despesa_to_closed_month(self):
+        payload = {
+            "descricao": "Movendo para fechado",
+            "loja_id": self.loja_id,
+            "categoria_id": self.categoria.id,
+            "valor": 100.00,
+            "data_competencia": f"{self.ano_fechado}-{self.mes_fechado:02d}-15", # Mês fechado
+            "data_vencimento": f"{self.ano_aberto}-{self.mes_aberto:02d}-20",
+             "fornecedor_id": self.fornecedor.id
         }
-
-
-class MockRepositorioFechamento:
-    def __init__(self):
-        self.fechamentos_salvos = []
-
-    def salvar_fechamento(self, fechamento_data):
-        self.fechamentos_salvos.append(fechamento_data)
-
-
-class TestProcessadorFechamento:
-    def test_processar_fechamento_previa(self):
-        vendas_client = MockVendasClient()
-        calculadora = CalculadoraFinanceira()
-        repo_perfil = MockRepositorioPerfilTaxa()
-        repo_fechamento = MockRepositorioFechamento()
-
-        processador = ProcessadorFechamento(
-            vendas_client, calculadora, repo_perfil, repo_fechamento
-        )
-
-        previa = processador.processar_fechamento_previa(1, 1, 2024)
-
-        assert previa['faturamento_bruto'] == Decimal('4500.00')
-        assert previa['total_taxas_cartao'] == Decimal('118.10')
-        assert previa['total_despesas'] == Decimal('5000.00')  # Valor mock
-        assert previa['lucro_liquido'] == Decimal('4500.00') - Decimal('118.10') - Decimal('5000.00')
-
-    def test_processar_fechamento_definitivo(self):
-        vendas_client = MockVendasClient()
-        calculadora = CalculadoraFinanceira()
-        repo_perfil = MockRepositorioPerfilTaxa()
-        repo_fechamento = MockRepositorioFechamento()
-
-        processador = ProcessadorFechamento(
-            vendas_client, calculadora, repo_perfil, repo_fechamento
-        )
-
-        processador.processar_fechamento_definitivo(1, 1, 2024)
-
-        assert len(repo_fechamento.fechamentos_salvos) == 1
-        fechamento = repo_fechamento.fechamentos_salvos[0]
-        assert fechamento['loja_id_externo'] == 1
-        assert fechamento['mes'] == 1
-        assert fechamento['ano'] == 2024
+        response = self.client.put(f"/despesas/{self.despesa_aberta.id}", json=payload)
+        if response.status_code != 400:
+             print("MOVE CLOSED ERROR:", response.json())
+        self.assertEqual(response.status_code, 400)

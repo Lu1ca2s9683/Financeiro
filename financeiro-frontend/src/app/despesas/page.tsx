@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, Despesa } from '@/services/api';
+import { api, Despesa, DespesaDetail } from '@/services/api';
 import Link from 'next/link';
-import { Plus, Trash2, Search, Filter, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, Pencil, Search, Filter, AlertCircle, X } from 'lucide-react';
 import { useFinanceiro } from '@/contexts/FinanceiroContext';
 import { PeriodSelector } from '@/components/PeriodSelector';
+import { DespesaForm } from '@/components/DespesaForm';
 
 export default function DespesasPage() {
   const { lojaId, mes, ano } = useFinanceiro(); // Estado Global
@@ -13,14 +14,16 @@ export default function DespesasPage() {
   const [loading, setLoading] = useState(true);
   const [totalMes, setTotalMes] = useState(0);
 
+  // Estados para edição
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingDespesa, setEditingDespesa] = useState<DespesaDetail | undefined>(undefined);
+
   const carregar = async () => {
     setLoading(true);
     try {
-      // Passamos o filtro de mês e ano para a API
       const dados = await api.getDespesas(lojaId, mes, ano);
       setDespesas(dados);
       
-      // Cálculo rápido do total no frontend para feedback imediato
       const total = dados.reduce((acc, curr) => acc + Number(curr.valor_liquido), 0);
       setTotalMes(total);
     } catch (error) {
@@ -40,7 +43,28 @@ export default function DespesasPage() {
     }
   };
 
-  // Recarrega sempre que o contexto (loja ou período) mudar
+  const abrirEdicao = async (id: number) => {
+    try {
+      const detalhes = await api.getDespesa(id);
+      setEditingDespesa(detalhes);
+      setIsEditModalOpen(true);
+    } catch (error) {
+      console.error(error);
+      alert('Erro ao carregar detalhes da despesa.');
+    }
+  };
+
+  const alterarStatus = async (id: number, novoStatus: string) => {
+    try {
+      // Feedback visual otimista poderia ser aplicado aqui, mas vamos esperar a API
+      await api.updateDespesaStatus(id, novoStatus);
+      carregar();
+    } catch (error: any) {
+      console.error(error);
+      alert(error.message || 'Erro ao alterar status.');
+    }
+  };
+
   useEffect(() => {
     carregar();
   }, [lojaId, mes, ano]);
@@ -56,7 +80,6 @@ export default function DespesasPage() {
         </div>
 
         <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
-          {/* O Seletor Global fica aqui para contexto imediato */}
           <div className="flex flex-col items-start gap-1 w-full sm:w-auto">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider pl-1">Período</span>
             <PeriodSelector />
@@ -71,7 +94,7 @@ export default function DespesasPage() {
         </div>
       </div>
 
-      {/* Resumo Rápido do Mês Selecionado */}
+      {/* Resumo Rápido */}
       <div className="flex items-center justify-between bg-slate-50 p-4 rounded-lg border border-slate-100">
         <div className="flex items-center gap-2 text-slate-600">
           <Filter size={16} />
@@ -116,16 +139,28 @@ export default function DespesasPage() {
                     {Number(d.valor_liquido).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                   </td>
                   <td className="px-6 py-4">
-                    <StatusBadge status={d.status} />
+                    <StatusSelector
+                        currentStatus={d.status}
+                        onChange={(status) => alterarStatus(d.id, status)}
+                    />
                   </td>
                   <td className="px-6 py-4 text-right opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button 
-                      onClick={() => excluir(d.id)}
-                      className="text-rose-500 hover:text-rose-700 p-2 hover:bg-rose-50 rounded transition-colors"
-                      title="Excluir"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => abrirEdicao(d.id)}
+                          className="text-indigo-600 hover:text-indigo-800 p-2 hover:bg-indigo-50 rounded transition-colors"
+                          title="Editar"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                        <button
+                          onClick={() => excluir(d.id)}
+                          className="text-rose-500 hover:text-rose-700 p-2 hover:bg-rose-50 rounded transition-colors"
+                          title="Excluir"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -144,24 +179,72 @@ export default function DespesasPage() {
           </table>
         )}
       </div>
+
+      {/* Modal de Edição */}
+      {isEditModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div className="bg-white rounded-xl shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
+                <div className="flex justify-between items-center p-6 border-b border-slate-100 sticky top-0 bg-white z-10">
+                    <h2 className="text-xl font-bold text-slate-900">Editar Despesa</h2>
+                    <button
+                        onClick={() => setIsEditModalOpen(false)}
+                        className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-2 rounded-full transition"
+                    >
+                        <X size={20} />
+                    </button>
+                </div>
+                <div className="p-6">
+                    <DespesaForm
+                        initialData={editingDespesa}
+                        onSuccess={() => {
+                            setIsEditModalOpen(false);
+                            carregar();
+                        }}
+                        onCancel={() => setIsEditModalOpen(false)}
+                    />
+                </div>
+            </div>
+        </div>
+      )}
+
     </main>
   );
 }
 
-// Micro-componente visual para status
-function StatusBadge({ status }: { status: string }) {
+function StatusSelector({ currentStatus, onChange }: { currentStatus: string, onChange: (s: string) => void }) {
   const styles: any = {
-    'PREVISTO': 'bg-blue-50 text-blue-700 border-blue-100',
-    'PAGO': 'bg-emerald-50 text-emerald-700 border-emerald-100',
-    'ATRASADO': 'bg-rose-50 text-rose-700 border-rose-100',
-    'CANCELADO': 'bg-slate-100 text-slate-500 border-slate-200',
+    'PREVISTO': 'bg-blue-50 text-blue-700 border-blue-100 hover:bg-blue-100',
+    'PAGO': 'bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-100',
+    'ATRASADO': 'bg-rose-50 text-rose-700 border-rose-100 hover:bg-rose-100',
+    'CANCELADO': 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200',
   };
   
-  const currentStyle = styles[status] || styles['PREVISTO'];
+  const currentStyle = styles[currentStatus] || styles['PREVISTO'];
 
   return (
-    <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${currentStyle}`}>
-      {status}
-    </span>
+    <div className="relative inline-block">
+        <select
+            value={currentStatus}
+            onChange={(e) => onChange(e.target.value)}
+            className={`
+                appearance-none cursor-pointer
+                px-3 py-1 pr-6 rounded-full text-xs font-bold border
+                outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500
+                transition-colors
+                ${currentStyle}
+            `}
+        >
+            <option value="PREVISTO">PREVISTO</option>
+            <option value="PAGO">PAGO</option>
+            <option value="ATRASADO">ATRASADO</option>
+            <option value="CANCELADO">CANCELADO</option>
+        </select>
+        {/* Ícone de seta personalizado para indicar dropdown */}
+        <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-50">
+            <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                <path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+        </div>
+    </div>
   );
 }

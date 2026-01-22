@@ -37,6 +37,15 @@ export interface Despesa {
   categoria?: { id: number; nome: string }; 
 }
 
+export interface DespesaDetail extends Despesa {
+  valor_bruto: number;
+  valor_desconto: number;
+  valor_acrescimo: number;
+  data_vencimento: string;
+  fornecedor_id?: number;
+  loja_id_externo: number;
+}
+
 export interface Fechamento {
   loja_id: number;
   mes: number;
@@ -123,6 +132,12 @@ export const api = {
     return res.json();
   },
 
+  getDespesa: async (id: number): Promise<DespesaDetail> => {
+    const res = await fetch(`${API_BASE_URL}/despesas/${id}`);
+    if (!res.ok) throw new Error('Falha ao buscar detalhes da despesa');
+    return res.json();
+  },
+
   createDespesa: async (data: any) => {
     const res = await fetch(`${API_BASE_URL}/despesas/`, {
       method: 'POST',
@@ -132,6 +147,32 @@ export const api = {
     if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.detail || 'Erro ao salvar despesa');
+    }
+    return res.json();
+  },
+
+  updateDespesa: async (id: number, data: any): Promise<Despesa> => {
+    const res = await fetch(`${API_BASE_URL}/despesas/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+         const errorData = await res.json().catch(() => ({}));
+         throw new Error(errorData.detail || 'Erro ao atualizar despesa');
+    }
+    return res.json();
+  },
+
+  updateDespesaStatus: async (id: number, status: string): Promise<Despesa> => {
+    const res = await fetch(`${API_BASE_URL}/despesas/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Erro ao atualizar status');
     }
     return res.json();
   },
