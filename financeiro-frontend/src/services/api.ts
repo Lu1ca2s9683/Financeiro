@@ -72,10 +72,85 @@ export interface Fechamento {
   status: string;
 }
 
+// --- Types ---
+export interface AuthResponse {
+  token: string;
+}
+
+export interface User {
+  id: number;
+  nome: string;
+  email: string;
+}
+
+export interface Loja {
+  id: number;
+  nome: string;
+  role: string;
+}
+
+export interface Grupo {
+  id: number;
+  nome: string;
+  role: string;
+  lojas: Loja[];
+}
+
+export interface MeResponse {
+  user: User;
+  grupos: Grupo[];
+  active_loja: Loja | null;
+}
+
+// --- Helpers ---
+const getHeaders = () => {
+  const token = localStorage.getItem('financeiro_token');
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+  };
+};
+
 export const api = {
+  // --- Auth ---
+  login: async (username: string, password: string): Promise<AuthResponse> => {
+    const res = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    if (!res.ok) throw new Error('Falha no login');
+    return res.json();
+  },
+
+  getMe: async (): Promise<MeResponse> => {
+    const res = await fetch(`${API_BASE_URL}/auth/me`, {
+      headers: getHeaders()
+    });
+    if (!res.ok) throw new Error('Falha ao buscar dados do usuário');
+    return res.json();
+  },
+
+  switchStore: async (loja_id: number): Promise<{ active_loja: Loja }> => {
+    const res = await fetch(`${API_BASE_URL}/auth/switch-loja`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ loja_id })
+    });
+
+    // Hack: Pega o novo token se vier no header (pelo mock)
+    const newToken = res.headers.get("X-New-Token");
+    if (newToken) {
+        localStorage.setItem("financeiro_token", newToken);
+    }
+
+    if (!res.ok) throw new Error('Falha ao trocar de loja');
+    return res.json();
+  },
+
   // --- Categorias ---
   getCategorias: async (): Promise<Categoria[]> => {
-    const res = await fetch(`${API_BASE_URL}/categorias/`);
+    const res = await fetch(`${API_BASE_URL}/categorias/`, { headers: getHeaders() });
     if (!res.ok) throw new Error('Falha ao buscar categorias');
     return res.json();
   },
@@ -83,7 +158,7 @@ export const api = {
   createCategoria: async (nome: string) => {
     const res = await fetch(`${API_BASE_URL}/categorias/`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(),
       body: JSON.stringify({ nome, ativa: true })
     });
     if (!res.ok) throw new Error('Erro ao criar categoria');
@@ -93,7 +168,7 @@ export const api = {
   updateCategoria: async (id: number, nome: string) => {
     const res = await fetch(`${API_BASE_URL}/categorias/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(),
       body: JSON.stringify({ nome, ativa: true })
     });
     if (!res.ok) throw new Error('Erro ao atualizar categoria');
@@ -101,7 +176,7 @@ export const api = {
   },
 
   deleteCategoria: async (id: number) => {
-    const res = await fetch(`${API_BASE_URL}/categorias/${id}`, { method: 'DELETE' });
+    const res = await fetch(`${API_BASE_URL}/categorias/${id}`, { method: 'DELETE', headers: getHeaders() });
     if (!res.ok) {
         const err = await res.json();
         throw new Error(err.detail || 'Erro ao excluir categoria');
@@ -114,14 +189,14 @@ export const api = {
     const url = lojaId 
       ? `${API_BASE_URL}/taxas/perfis/?loja_id=${lojaId}` 
       : `${API_BASE_URL}/taxas/perfis/`;
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: getHeaders() });
     if (!res.ok) throw new Error('Falha ao buscar perfis de taxas');
     return res.json();
   },
 
   // --- Despesas e Fechamento ---
   getDashboardResumo: async (lojaId: number, mes: number, ano: number): Promise<DashboardResumo> => {
-    const res = await fetch(`${API_BASE_URL}/dashboard/resumo/${lojaId}/${mes}/${ano}`);
+    const res = await fetch(`${API_BASE_URL}/dashboard/resumo/${lojaId}/${mes}/${ano}`, { headers: getHeaders() });
     if (!res.ok) throw new Error('Falha ao buscar resumo do dashboard');
     return res.json();
   },
@@ -129,7 +204,7 @@ export const api = {
   getFechamento: async (lojaId: number, mes: number, ano: number): Promise<Fechamento> => {
     const res = await fetch(`${API_BASE_URL}/fechamento/calcular/${lojaId}/${mes}/${ano}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(),
       body: JSON.stringify({}) 
     });
     if (!res.ok) throw new Error('Falha ao buscar fechamento');
@@ -147,13 +222,13 @@ export const api = {
     
     console.log("📡 Buscando despesas na URL:", url);
     
-    const res = await fetch(url, { cache: 'no-store' });
+    const res = await fetch(url, { cache: 'no-store', headers: getHeaders() });
     if (!res.ok) throw new Error('Falha ao buscar despesas');
     return res.json();
   },
 
   getDespesa: async (id: number): Promise<DespesaDetail> => {
-    const res = await fetch(`${API_BASE_URL}/despesas/${id}`);
+    const res = await fetch(`${API_BASE_URL}/despesas/${id}`, { headers: getHeaders() });
     if (!res.ok) throw new Error('Falha ao buscar detalhes da despesa');
     return res.json();
   },
@@ -161,7 +236,7 @@ export const api = {
   createDespesa: async (data: any) => {
     const res = await fetch(`${API_BASE_URL}/despesas/`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(),
       body: JSON.stringify(data),
     });
     if (!res.ok) {
@@ -174,7 +249,7 @@ export const api = {
   updateDespesa: async (id: number, data: any): Promise<Despesa> => {
     const res = await fetch(`${API_BASE_URL}/despesas/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(),
       body: JSON.stringify(data),
     });
     if (!res.ok) {
@@ -187,7 +262,7 @@ export const api = {
   updateDespesaStatus: async (id: number, status: string): Promise<Despesa> => {
     const res = await fetch(`${API_BASE_URL}/despesas/${id}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(),
       body: JSON.stringify({ status }),
     });
     if (!res.ok) {
@@ -198,7 +273,7 @@ export const api = {
   },
 
   deleteDespesa: async (id: number) => {
-    const res = await fetch(`${API_BASE_URL}/despesas/${id}`, { method: 'DELETE' });
+    const res = await fetch(`${API_BASE_URL}/despesas/${id}`, { method: 'DELETE', headers: getHeaders() });
     if (!res.ok) throw new Error('Falha ao excluir');
     return res.json();
   }

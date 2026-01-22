@@ -17,9 +17,10 @@ from ..models.entidades import (
 )
 from ...infrastructure.vendas_client import VendasClientSQL, VendasAPIClientMock
 from ...domain.services import ProcessadorFechamento, FaturamentoItemDTO
+from .security import AuthBearer, check_permission
 
 # Instância do Router
-router = Router()
+router = Router(auth=AuthBearer())
 
 # ==============================================================================
 # 1. ADAPTERS E REPOSITÓRIOS INTERNOS
@@ -181,6 +182,8 @@ class FechamentoOut(Schema):
 @router.get("/dashboard/resumo/{loja_id}/{mes}/{ano}", response=DashboardResumoOut)
 def obter_resumo_dashboard(request, loja_id: int, mes: int, ano: int):
     """Retorna dados agregados para o dashboard."""
+    check_permission(request, loja_id)
+
     despesas = ContaPagar.objects.filter(
         loja_id_externo=loja_id,
         data_competencia__month=mes,
@@ -293,6 +296,9 @@ def excluir_categoria(request, categoria_id: int):
 @router.get("/taxas/perfis/", response=List[PerfilTaxaOut])
 def listar_perfis_taxas(request, loja_id: Optional[int] = None):
     """Lista perfis de taxas, opcionalmente filtrando por loja."""
+    if loja_id:
+        check_permission(request, loja_id)
+
     qs = PerfilTaxaCartao.objects.filter(ativo=True).prefetch_related('taxas')
     if loja_id:
         qs = qs.filter(loja_id_externo=loja_id)
@@ -303,17 +309,15 @@ def listar_perfis_taxas(request, loja_id: Optional[int] = None):
 @router.get("/despesas/", response=List[DespesaOut])
 def listar_despesas(
     request, 
-    loja_id: Optional[int] = None,
-    mes: Optional[int] = None, # <--- PARÂMETROS ADICIONADOS
-    ano: Optional[int] = None  # <--- PARA O FILTRO
+    loja_id: int, # Obrigatório agora para segurança
+    mes: Optional[int] = None,
+    ano: Optional[int] = None
 ):
     """Lista despesas, opcionalmente filtrando por loja e competência."""
-    qs = ContaPagar.objects.all().select_related('categoria')
+    check_permission(request, loja_id)
+
+    qs = ContaPagar.objects.filter(loja_id_externo=loja_id).select_related('categoria')
     
-    if loja_id:
-        qs = qs.filter(loja_id_externo=loja_id)
-    
-    # Lógica de Filtro por Data (CORREÇÃO)
     if mes and ano:
         qs = qs.filter(data_competencia__month=mes, data_competencia__year=ano)
         
@@ -322,12 +326,15 @@ def listar_despesas(
 @router.get("/despesas/{despesa_id}", response=DespesaDetailOut)
 def obter_despesa(request, despesa_id: int):
     """Retorna detalhes de uma despesa."""
-    return get_object_or_404(ContaPagar, id=despesa_id)
+    despesa = get_object_or_404(ContaPagar, id=despesa_id)
+    check_permission(request, despesa.loja_id_externo)
+    return despesa
 
 @router.patch("/despesas/{despesa_id}/status", response=DespesaOut)
 def atualizar_status_despesa(request, despesa_id: int, payload: StatusUpdate):
     """Atualiza o status da despesa, validando fechamento."""
     despesa = get_object_or_404(ContaPagar, id=despesa_id)
+    check_permission(request, despesa.loja_id_externo)
 
     # Validar fechamento
     fechamento = FechamentoMensal.objects.filter(
@@ -351,6 +358,8 @@ def atualizar_status_despesa(request, despesa_id: int, payload: StatusUpdate):
 @router.post("/despesas/", response=DespesaOut)
 def criar_despesa(request, payload: DespesaIn):
     """Cria uma nova conta a pagar."""
+    check_permission(request, payload.loja_id)
+
     if not CategoriaDespesa.objects.filter(id=payload.categoria_id).exists():
         raise HttpError(404, f"Categoria de Despesa com ID {payload.categoria_id} não encontrada.")
     
@@ -378,6 +387,11 @@ def criar_despesa(request, payload: DespesaIn):
 def editar_despesa(request, despesa_id: int, payload: DespesaIn):
     """Atualiza uma despesa e recalcula valores."""
     despesa = get_object_or_404(ContaPagar, id=despesa_id)
+    check_permission(request, despesa.loja_id_externo)
+
+    # Se mudar a loja, verifica permissão na nova também
+    if payload.loja_id != despesa.loja_id_externo:
+        check_permission(request, payload.loja_id)
 
     # Validar fechamento (Data Atual)
     fechamento_atual = FechamentoMensal.objects.filter(
@@ -422,6 +436,7 @@ def editar_despesa(request, despesa_id: int, payload: DespesaIn):
 def excluir_despesa(request, despesa_id: int):
     """Exclui uma despesa."""
     despesa = get_object_or_404(ContaPagar, id=despesa_id)
+    check_permission(request, despesa.loja_id_externo)
     despesa.delete()
     return {"success": True, "message": f"Despesa {despesa_id} excluída."}
 
@@ -430,6 +445,8 @@ def excluir_despesa(request, despesa_id: int):
 @router.post("/fechamento/calcular/{loja_id}/{mes}/{ano}", response=FechamentoOut)
 def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
     """Calcula e persiste o fechamento mensal."""
+    check_permission(request, loja_id)
+
     # 1. Instancia dependências (SQL Real ou Mock)
     try:
         vendas_client = VendasClientSQL() 

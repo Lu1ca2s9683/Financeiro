@@ -5,11 +5,13 @@ import { api, Despesa, DespesaDetail } from '@/services/api';
 import Link from 'next/link';
 import { Plus, Trash2, Pencil, Search, Filter, AlertCircle, X } from 'lucide-react';
 import { useFinanceiro } from '@/contexts/FinanceiroContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { PeriodSelector } from '@/components/PeriodSelector';
 import { DespesaForm } from '@/components/DespesaForm';
 
 export default function DespesasPage() {
-  const { lojaId, mes, ano } = useFinanceiro(); // Estado Global
+  const { lojaId, mes, ano } = useFinanceiro();
+  const { canEdit } = useAuth();
   const [despesas, setDespesas] = useState<Despesa[]>([]);
   const [loading, setLoading] = useState(true);
   const [totalMes, setTotalMes] = useState(0);
@@ -85,12 +87,14 @@ export default function DespesasPage() {
             <PeriodSelector />
           </div>
 
-          <Link 
-            href="/despesas/nova"
-            className="w-full sm:w-auto mt-5 sm:mt-0 bg-indigo-600 text-white px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 hover:bg-indigo-700 transition shadow-sm font-medium"
-          >
-            <Plus size={18} /> Nova Despesa
-          </Link>
+          {canEdit && (
+            <Link
+                href="/despesas/nova"
+                className="w-full sm:w-auto mt-5 sm:mt-0 bg-indigo-600 text-white px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 hover:bg-indigo-700 transition shadow-sm font-medium"
+            >
+                <Plus size={18} /> Nova Despesa
+            </Link>
+          )}
         </div>
       </div>
 
@@ -140,11 +144,17 @@ export default function DespesasPage() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex flex-col gap-1 items-start">
-                        <StatusSelector
-                            currentStatus={d.status}
-                            onChange={(status) => alterarStatus(d.id, status)}
-                        />
-                        {/* Alertas de Vencimento */}
+                        {canEdit ? (
+                            <StatusSelector
+                                currentStatus={d.status}
+                                onChange={(status) => alterarStatus(d.id, status)}
+                            />
+                        ) : (
+                            <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-bold border border-slate-200">
+                                {d.status}
+                            </span>
+                        )}
+
                         {d.is_atrasado && (
                             <span className="text-[10px] font-bold text-rose-600 flex items-center gap-1 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-100">
                                 <AlertCircle size={10} /> VENCIDA
@@ -158,22 +168,24 @@ export default function DespesasPage() {
                     </div>
                   </td>
                   <td className="px-6 py-4 text-right opacity-0 group-hover:opacity-100 transition-opacity">
-                    <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => abrirEdicao(d.id)}
-                          className="text-indigo-600 hover:text-indigo-800 p-2 hover:bg-indigo-50 rounded transition-colors"
-                          title="Editar"
-                        >
-                          <Pencil size={16} />
-                        </button>
-                        <button
-                          onClick={() => excluir(d.id)}
-                          className="text-rose-500 hover:text-rose-700 p-2 hover:bg-rose-50 rounded transition-colors"
-                          title="Excluir"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                    </div>
+                    {canEdit && (
+                        <div className="flex items-center justify-end gap-2">
+                            <button
+                            onClick={() => abrirEdicao(d.id)}
+                            className="text-indigo-600 hover:text-indigo-800 p-2 hover:bg-indigo-50 rounded transition-colors"
+                            title="Editar"
+                            >
+                            <Pencil size={16} />
+                            </button>
+                            <button
+                            onClick={() => excluir(d.id)}
+                            className="text-rose-500 hover:text-rose-700 p-2 hover:bg-rose-50 rounded transition-colors"
+                            title="Excluir"
+                            >
+                            <Trash2 size={16} />
+                            </button>
+                        </div>
+                    )}
                   </td>
                 </tr>
               ))}
