@@ -78,6 +78,7 @@ TEMPLATES = [
 WSGI_APPLICATION = 'config.wsgi.application'
 
 # --- BANCO DE DADOS ---
+
 # Configuração Padrão (Local)
 DATABASES = {
     'default': {
@@ -98,14 +99,28 @@ DATABASES = {
     }
 }
 
-# --- CONFIGURAÇÃO RENDER (Proteção) ---
+# --- CONFIGURAÇÃO RENDER (Lógica Inteligente) ---
+
+# Se a variável DATABASE_URL existe, significa que estamos no ambiente de nuvem
 if 'DATABASE_URL' in os.environ:
-    # Se a variável existe, usamos a configuração da nuvem
-    db_config = dj_database_url.config(conn_max_age=600, ssl_require=True)
-    DATABASES['default'] = db_config
-    DATABASES['vendas_db'] = db_config
+    # 1. Configura o Banco Principal (Financeiro) usando a URL padrão do Render
+    DATABASES['default'] = dj_database_url.config(conn_max_age=600, ssl_require=True)
+    
+    # 2. Configura o Banco Secundário (Vendas)
+    if 'VENDAS_DATABASE_URL' in os.environ:
+        # CONEXÃO REAL: Se definimos a URL externa, conecta no banco de produção das vendas
+        DATABASES['vendas_db'] = dj_database_url.parse(
+            os.environ['VENDAS_DATABASE_URL'],
+            conn_max_age=600,
+            ssl_require=True
+        )
+    else:
+        # FALLBACK: Se não existir a variável, usa o mesmo banco do financeiro
+        # (Útil se você restaurou o backup dentro do banco financeiro_db no Render)
+        DATABASES['vendas_db'] = DATABASES['default']
+
+# Segurança: Se estamos no Render mas a DATABASE_URL não apareceu, avisamos
 elif 'RENDER' in os.environ:
-    # Se estamos no Render mas SEM a variável, paramos tudo com erro claro
     raise ValueError("ERRO CRÍTICO: A variável de ambiente DATABASE_URL não foi definida no Render! Adicione-a na aba Environment.")
 
 DATABASE_ROUTERS = ['config.db_routers.VendasRouter']
