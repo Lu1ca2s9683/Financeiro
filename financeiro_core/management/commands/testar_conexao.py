@@ -1,6 +1,7 @@
 from django.core.management.base import BaseCommand
 from django.db import connections
 from django.db.utils import OperationalError
+from django.conf import settings
 import os
 
 class Command(BaseCommand):
@@ -9,15 +10,17 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         self.stdout.write(self.style.WARNING('--- INICIANDO TESTE DE CONEXÃO ---'))
         
-        # 1. Verifica se a variável existe
-        url = os.environ.get('VENDAS_DATABASE_URL')
-        if not url:
-            self.stdout.write(self.style.ERROR('ERRO: Variável VENDAS_DATABASE_URL não encontrada no ambiente!'))
-            return
+        # 1. Verifica qual configuração está sendo usada
+        db_config = settings.DATABASES.get('vendas_db', {})
+        db_name = db_config.get('NAME', 'Desconhecido')
+        db_host = db_config.get('HOST', 'Desconhecido')
+        
+        if os.environ.get('VENDAS_DATABASE_URL'):
+            self.stdout.write("Modo: Conexão Externa Dedicada (Variável encontrada)")
+        else:
+            self.stdout.write("Modo: Conexão Compartilhada/Fallback (Usando credenciais do banco principal)")
 
-        # Mascara a senha para mostrar no log
-        url_mascarada = url.split('@')[1] if '@' in url else 'URL INVÁLIDA'
-        self.stdout.write(f"URL Configurada (host): ...@{url_mascarada}")
+        self.stdout.write(f"Alvo: Banco '{db_name}' em '{db_host}'")
 
         # 2. Tenta conectar
         try:
