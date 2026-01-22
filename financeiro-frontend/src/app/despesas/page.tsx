@@ -139,10 +139,23 @@ export default function DespesasPage() {
                     {Number(d.valor_liquido).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                   </td>
                   <td className="px-6 py-4">
-                    <StatusSelector
-                        currentStatus={d.status}
-                        onChange={(status) => alterarStatus(d.id, status)}
-                    />
+                    <div className="flex flex-col gap-1 items-start">
+                        <StatusSelector
+                            currentStatus={d.status}
+                            onChange={(status) => alterarStatus(d.id, status)}
+                        />
+                        {/* Alertas de Vencimento */}
+                        {d.is_atrasado && (
+                            <span className="text-[10px] font-bold text-rose-600 flex items-center gap-1 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-100">
+                                <AlertCircle size={10} /> VENCIDA
+                            </span>
+                        )}
+                        {!d.is_atrasado && d.is_vencendo && d.dias_para_vencimento !== undefined && (
+                             <span className="text-[10px] font-bold text-amber-600 flex items-center gap-1 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100">
+                                <AlertCircle size={10} /> VENCE EM {d.dias_para_vencimento} DIA(S)
+                             </span>
+                        )}
+                    </div>
                   </td>
                   <td className="px-6 py-4 text-right opacity-0 group-hover:opacity-100 transition-opacity">
                     <div className="flex items-center justify-end gap-2">

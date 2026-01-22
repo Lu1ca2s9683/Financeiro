@@ -122,3 +122,39 @@ class DespesasApiTest(TestCase):
         if response.status_code != 400:
              print("MOVE CLOSED ERROR:", response.json())
         self.assertEqual(response.status_code, 400)
+
+    def test_dashboard_summary(self):
+        # Cria mais algumas despesas para testar os contadores
+        # 1. Despesa atrasada
+        ContaPagar.objects.create(
+            descricao="Atrasada",
+            loja_id_externo=self.loja_id,
+            categoria=self.categoria,
+            valor_bruto=Decimal('50.00'),
+            data_competencia=date(self.ano_aberto, self.mes_aberto, 1),
+            data_vencimento=date(self.ano_aberto, self.mes_aberto, 5), # Já passou (considerando hoje > dia 5)
+            status='ATRASADO'
+        )
+
+        # 2. Despesa vencendo hoje (deve contar como vencendo na semana)
+        hoje = date.today()
+        ContaPagar.objects.create(
+            descricao="Vence Hoje",
+            loja_id_externo=self.loja_id,
+            categoria=self.categoria,
+            valor_bruto=Decimal('60.00'),
+            data_competencia=date(self.ano_aberto, self.mes_aberto, 1),
+            data_vencimento=hoje,
+            status='PREVISTO'
+        )
+
+        response = self.client.get(f"/dashboard/resumo/{self.loja_id}/{self.mes_aberto}/{self.ano_aberto}")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+
+        self.assertIn("percentual_pago", data)
+        self.assertIn("mensagem_assistente", data)
+        # Verifica se contou a despesa atrasada
+        self.assertGreaterEqual(data['despesas_atrasadas'], 1)
+        # Verifica se contou a despesa vencendo hoje
+        self.assertGreaterEqual(data['despesas_vencendo_semana'], 1)

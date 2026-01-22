@@ -110,6 +110,31 @@ class DespesaOut(Schema):
     status: str
     data_competencia: date
     categoria: CategoriaOut = None 
+    dias_para_vencimento: Optional[int] = None
+    is_vencendo: bool = False
+    is_atrasado: bool = False
+
+    @staticmethod
+    def resolve_dias_para_vencimento(obj):
+        if obj.status == 'PAGO':
+            return None
+        return (obj.data_vencimento - date.today()).days
+
+    @staticmethod
+    def resolve_is_vencendo(obj):
+        if obj.status == 'PAGO':
+            return False
+        dias = (obj.data_vencimento - date.today()).days
+        return 0 <= dias <= 7
+
+    @staticmethod
+    def resolve_is_atrasado(obj):
+        if obj.status == 'PAGO':
+            return False
+        # Se o status já é ATRASADO ou se venceu e não está pago
+        if obj.status == 'ATRASADO':
+            return True
+        return obj.data_vencimento < date.today()
 
 class DespesaDetailOut(DespesaOut):
     valor_bruto: Decimal
@@ -121,6 +146,16 @@ class DespesaDetailOut(DespesaOut):
 
 class StatusUpdate(Schema):
     status: str
+
+class DashboardResumoOut(Schema):
+    percentual_pago: float
+    percentual_atrasado: float
+    percentual_previsto: float
+    total_despesas_mes: int
+    despesas_vencendo_semana: int
+    despesas_atrasadas: int
+    saude_financeira: str  # 'SAUDAVEL', 'ATENCAO', 'CRITICO'
+    mensagem_assistente: str
 
 # --- Schemas de Fechamento ---
 class FechamentoOut(Schema):
@@ -140,6 +175,88 @@ class FechamentoOut(Schema):
 # ==============================================================================
 # 3. ENDPOINTS
 # ==============================================================================
+
+# --- DASHBOARD ---
+
+@router.get("/dashboard/resumo/{loja_id}/{mes}/{ano}", response=DashboardResumoOut)
+def obter_resumo_dashboard(request, loja_id: int, mes: int, ano: int):
+    """Retorna dados agregados para o dashboard."""
+    despesas = ContaPagar.objects.filter(
+        loja_id_externo=loja_id,
+        data_competencia__month=mes,
+        data_competencia__year=ano
+    ).exclude(status='CANCELADO')
+
+    total = despesas.count()
+    if total == 0:
+        return {
+            "percentual_pago": 0.0,
+            "percentual_atrasado": 0.0,
+            "percentual_previsto": 0.0,
+            "total_despesas_mes": 0,
+            "despesas_vencendo_semana": 0,
+            "despesas_atrasadas": 0,
+            "saude_financeira": "SAUDAVEL", # Sem dívidas é saudável
+            "mensagem_assistente": "Nenhuma despesa lançada para este período."
+        }
+
+    pagas = despesas.filter(status='PAGO').count()
+    atrasadas = despesas.filter(status='ATRASADO').count()
+    # Considera também as que venceram e ainda estão como PREVISTO
+    hoje = date.today()
+    atrasadas_reais = 0
+    previstas = 0
+    vencendo_semana = 0
+
+    for d in despesas:
+        if d.status == 'PAGO':
+            continue
+
+        # Lógica de atraso
+        if d.status == 'ATRASADO' or d.data_vencimento < hoje:
+            atrasadas_reais += 1
+        else:
+            previstas += 1
+            # Vencendo na semana (0 a 7 dias)
+            dias = (d.data_vencimento - hoje).days
+            if 0 <= dias <= 7:
+                vencendo_semana += 1
+
+    perc_pago = (pagas / total) * 100
+    perc_atrasado = (atrasadas_reais / total) * 100
+    perc_previsto = (previstas / total) * 100
+
+    # Saúde Financeira
+    if perc_pago >= 80:
+        saude = "SAUDAVEL"
+    elif perc_pago >= 50:
+        saude = "ATENCAO"
+    else:
+        saude = "CRITICO"
+
+    # Assistente Contextual
+    msg = ""
+    if vencendo_semana > 0:
+        msg = f"Atenção: Você tem {vencendo_semana} despesa(s) vencendo nos próximos 7 dias."
+    elif atrasadas_reais > 0:
+        msg = f"Cuidado: Existem {atrasadas_reais} despesa(s) em atraso neste mês."
+    elif perc_pago > 90:
+        msg = f"Excelente! {int(perc_pago)}% das despesas deste mês já foram quitadas."
+    elif perc_previsto > 50:
+        msg = "Mês em andamento. Mantenha o controle dos vencimentos."
+    else:
+        msg = "Saúde financeira estável. Nenhuma pendência urgente."
+
+    return {
+        "percentual_pago": round(perc_pago, 1),
+        "percentual_atrasado": round(perc_atrasado, 1),
+        "percentual_previsto": round(perc_previsto, 1),
+        "total_despesas_mes": total,
+        "despesas_vencendo_semana": vencendo_semana,
+        "despesas_atrasadas": atrasadas_reais,
+        "saude_financeira": saude,
+        "mensagem_assistente": msg
+    }
 
 # --- CATEGORIAS (CRUD) ---
 

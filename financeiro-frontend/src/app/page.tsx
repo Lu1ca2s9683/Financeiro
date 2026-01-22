@@ -1,23 +1,28 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, Fechamento } from '@/services/api';
+import { api, Fechamento, DashboardResumo } from '@/services/api';
 import { TrendingUp, TrendingDown, DollarSign, Calendar, RefreshCw, Layers } from 'lucide-react';
-import { useFinanceiro } from '@/contexts/FinanceiroContext'; // <--- Importando Contexto
+import { useFinanceiro } from '@/contexts/FinanceiroContext';
+import { HealthCard } from '@/components/HealthCard';
+import { AssistantMessage } from '@/components/AssistantMessage';
 
 export default function DashboardPage() {
-  // 1. Usamos o Contexto Global em vez de estado local
   const { lojaId, mes, ano, dataCompetenciaISO, atualizarPeriodoPorInput, periodoFormatado } = useFinanceiro();
   
   const [dados, setDados] = useState<Fechamento | null>(null);
+  const [resumo, setResumo] = useState<DashboardResumo | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchDados = async () => {
     setLoading(true);
     try {
-      // 2. Passamos o mês/ano global para a API
-      const resultado = await api.getFechamento(lojaId, mes, ano);
-      setDados(resultado);
+      const [fechamento, dashResumo] = await Promise.all([
+        api.getFechamento(lojaId, mes, ano),
+        api.getDashboardResumo(lojaId, mes, ano)
+      ]);
+      setDados(fechamento);
+      setResumo(dashResumo);
     } catch (error) {
       console.error(error);
     } finally {
@@ -25,7 +30,6 @@ export default function DashboardPage() {
     }
   };
 
-  // 3. Recarrega sempre que o contexto global mudar
   useEffect(() => {
     fetchDados();
   }, [lojaId, mes, ano]);
@@ -68,6 +72,11 @@ export default function DashboardPage() {
         </div>
       ) : dados ? (
         <>
+          {/* Assistente Contextual */}
+          {resumo?.mensagem_assistente && (
+             <AssistantMessage message={resumo.mensagem_assistente} />
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <KpiCard title="Faturamento Bruto" value={dados.faturamento_bruto} icon={DollarSign} trend="neutral" delay="delay-0" />
             <KpiCard title="Taxas de Cartão" value={dados.total_taxas} icon={Layers} trend="down" isExpense delay="delay-100" />
@@ -76,6 +85,8 @@ export default function DashboardPage() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-enter delay-300">
+
+            {/* Coluna Principal: Composição */}
             <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200/60 shadow-sm p-8 hover:shadow-md transition-shadow duration-300">
               <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
                 <div className="w-1 h-6 bg-indigo-500 rounded-full"></div>
@@ -100,23 +111,40 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="bg-slate-900 text-slate-300 rounded-2xl p-8 shadow-lg flex flex-col justify-between relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl group-hover:bg-indigo-500/20 transition-all duration-500"></div>
-              
-              <div>
-                <h3 className="text-white font-bold text-lg mb-2">Status do Mês</h3>
-                <p className="text-sm text-slate-400">O fechamento atual encontra-se em aberto. Certifique-se de lançar todas as despesas antes de concluir.</p>
-              </div>
+            {/* Coluna Lateral: Status + Saúde */}
+            <div className="space-y-6">
+              {/* Card de Saúde Financeira */}
+              {resumo && (
+                <HealthCard
+                  status={resumo.saude_financeira}
+                  percentualPago={resumo.percentual_pago}
+                />
+              )}
 
-              <div className="mt-8">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className={`w-2.5 h-2.5 rounded-full ${dados.status === 'ABERTO' ? 'bg-yellow-400 animate-pulse' : 'bg-emerald-400'}`}></span>
-                  <span className="text-xs font-bold tracking-wider uppercase text-white">{dados.status}</span>
+              <div className="bg-slate-900 text-slate-300 rounded-2xl p-8 shadow-lg flex flex-col justify-between relative overflow-hidden group">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl group-hover:bg-indigo-500/20 transition-all duration-500"></div>
+
+                <div>
+                  <h3 className="text-white font-bold text-lg mb-2">Status do Fechamento</h3>
+                  <p className="text-sm text-slate-400">
+                    {dados.status === 'ABERTO'
+                      ? 'O fechamento atual encontra-se em aberto.'
+                      : 'Este mês já foi concluído e auditado.'}
+                  </p>
                 </div>
-                <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-indigo-500 h-full w-[75%] rounded-full"></div>
+
+                <div className="mt-8">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={`w-2.5 h-2.5 rounded-full ${dados.status === 'ABERTO' ? 'bg-yellow-400 animate-pulse' : 'bg-emerald-400'}`}></span>
+                    <span className="text-xs font-bold tracking-wider uppercase text-white">{dados.status}</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full w-full rounded-full ${dados.status === 'ABERTO' ? 'bg-yellow-500' : 'bg-emerald-500'}`}
+                      style={{ width: dados.status === 'ABERTO' ? '60%' : '100%' }}
+                    ></div>
+                  </div>
                 </div>
-                <p className="text-xs text-right mt-1 text-slate-500">75% concluído</p>
               </div>
             </div>
           </div>
