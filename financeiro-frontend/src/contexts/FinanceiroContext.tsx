@@ -6,7 +6,9 @@ import { useAuth } from './AuthContext';
 interface FinanceiroContextProps {
   lojaId: number;
   mes: number;
+  setMes: (m: number) => void;
   ano: number;
+  setAno: (a: number) => void;
   periodoFormatado: string;
   dataCompetenciaISO: string;
   atualizarPeriodoPorInput: (isoValue: string) => void;
@@ -46,7 +48,9 @@ export function FinanceiroProvider({ children }: { children: ReactNode }) {
     <FinanceiroContext.Provider value={{
       lojaId,
       mes,
+      setMes,
       ano,
+      setAno,
       periodoFormatado,
       dataCompetenciaISO,
       atualizarPeriodoPorInput
