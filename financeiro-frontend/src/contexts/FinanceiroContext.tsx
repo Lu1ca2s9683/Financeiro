@@ -1,14 +1,12 @@
 'use client';
 
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import { useAuth } from './AuthContext';
 
 interface FinanceiroContextProps {
   lojaId: number;
-  setLojaId: (id: number) => void;
   mes: number;
-  setMes: (m: number) => void;
   ano: number;
-  setAno: (a: number) => void;
   periodoFormatado: string;
   dataCompetenciaISO: string;
   atualizarPeriodoPorInput: (isoValue: string) => void;
@@ -17,14 +15,14 @@ interface FinanceiroContextProps {
 const FinanceiroContext = createContext<FinanceiroContextProps | undefined>(undefined);
 
 export function FinanceiroProvider({ children }: { children: ReactNode }) {
-  // Inicializa com a data atual (ou Dezembro/2025 para testes, se preferir)
+  const { activeLoja } = useAuth();
+
+  // Data inicial: Mês atual
   const dataAtual = new Date();
-  const [lojaId, setLojaId] = useState(1);
   const [mes, setMes] = useState(dataAtual.getMonth() + 1); // 1-12
   const [ano, setAno] = useState(dataAtual.getFullYear());
 
   // Formatação visual (Ex: "Janeiro / 2026")
-  // Importante: mes - 1 porque o Date do JS usa meses 0-11
   const periodoFormatado = new Date(ano, mes - 1, 1).toLocaleDateString('pt-BR', {
     month: 'long',
     year: 'numeric',
@@ -41,11 +39,14 @@ export function FinanceiroProvider({ children }: { children: ReactNode }) {
     setMes(m);
   };
 
+  // Se não houver loja ativa (login pendente), usamos 0 ou lidamos na UI
+  const lojaId = activeLoja?.id || 0;
+
   return (
     <FinanceiroContext.Provider value={{
-      lojaId, setLojaId,
-      mes, setMes,
-      ano, setAno,
+      lojaId,
+      mes,
+      ano,
       periodoFormatado,
       dataCompetenciaISO,
       atualizarPeriodoPorInput

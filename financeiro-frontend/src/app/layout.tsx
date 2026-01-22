@@ -2,8 +2,10 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { Sidebar } from '@/components/Sidebar';
-import { FinanceiroProvider } from '@/contexts/FinanceiroContext'; // <--- Import obrigatório
+import { FinanceiroProvider } from '@/contexts/FinanceiroContext';
+import { AuthProvider } from '@/contexts/AuthContext';
 import { DebugPanel } from '@/components/DebugPanel';
+import { MainLayout } from '@/components/MainLayout';
 
 const inter = Inter({ 
   subsets: ['latin'],
@@ -24,20 +26,12 @@ export default function RootLayout({
   return (
     <html lang="pt-BR" className={inter.variable}>
       <body className="font-sans antialiased bg-slate-50 text-slate-900">
-        {/* O Provider deve envolver a Sidebar e o conteúdo para compartilhar o estado */}
-        <FinanceiroProvider>
-          <div className="flex min-h-screen">
-            <Sidebar />
-            
-            {/* Conteúdo Principal com margem para a Sidebar fixa */}
-            <div className="flex-1 ml-72 transition-all duration-300 ease-in-out">
-              {children}
-            </div>
-          </div>
-
-          <DebugPanel />
-
-        </FinanceiroProvider>
+        <AuthProvider>
+          <FinanceiroProvider>
+             <MainLayout>{children}</MainLayout>
+             <DebugPanel />
+          </FinanceiroProvider>
+        </AuthProvider>
       </body>
     </html>
   );
