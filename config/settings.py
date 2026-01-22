@@ -112,7 +112,7 @@ if 'DATABASE_URL' in os.environ:
         DATABASES['vendas_db'] = dj_database_url.parse(
             os.environ['VENDAS_DATABASE_URL'],
             conn_max_age=600,
-            ssl_require=True
+            ssl_require=False
         )
     else:
         # FALLBACK: Se não existir a variável, usa o mesmo banco do financeiro
