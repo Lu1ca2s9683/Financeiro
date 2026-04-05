@@ -19,9 +19,8 @@ api = NinjaAPI(
 # Adiciona as rotas do módulo financeiro (ex: /api/financeiro/despesas)
 api.add_router("/financeiro", financeiro_router)
 
-# API secundária apenas para rotas na raiz, se necessário
-root_api = NinjaAPI(urls_namespace="root_api", docs_url=None)
-root_api.add_router("/auth", auth_router)
+# Adiciona as rotas de autenticação (ex: /api/financeiro/auth/login)
+api.add_router("/financeiro/auth", auth_router)
 
 urlpatterns = [
     # Rota para o painel administrativo do Django
@@ -29,7 +28,4 @@ urlpatterns = [
     
     # Rota base para a API principal (inclui a documentação automática em /api/docs)
     path('api/', api.urls),
-
-    # Rota para autenticação na raiz do servidor
-    path('', root_api.urls),
 ]
