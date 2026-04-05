@@ -120,38 +120,29 @@ def get_user_from_request(request):
 
 # --- Endpoints ---
 
-import os
-import requests
-
-ORION_AUTH_URL = os.environ.get("ORION_AUTH_URL", "https://orion-system.example.com/api/login")
+from django.contrib.auth.models import User
+from django.contrib.auth.hashers import check_password
 
 @router.post("/login", response=TokenSchema)
 def login(request, payload: LoginSchema):
     try:
-        response = requests.post(
-            ORION_AUTH_URL,
-            json={"username": payload.username, "password": payload.password},
-            timeout=10
-        )
-    except requests.RequestException:
-        raise HttpError(503, "Erro ao comunicar com o sistema de autenticação (Orion).")
-
-    if response.status_code != 200:
+        # Consulta o usuário estritamente no banco de dados secundário (Orion/Vendas)
+        user = User.objects.using('vendas').get(username=payload.username)
+    except User.DoesNotExist:
         raise HttpError(401, "Credenciais inválidas")
 
-    orion_data = response.json()
-    user_id = orion_data.get("user_id")
+    # Verifica o hash da senha
+    if not check_password(payload.password, user.password):
+        raise HttpError(401, "Credenciais inválidas")
 
-    if not user_id:
-        # Fallback in case Orion doesn't return user_id,
-        # though a real SSO system likely would.
-        user_id = payload.username
+    # O Orion deve ter os grupos e lojas vinculadas na base, mas neste momento de transição
+    # não está explícito no prompt como recuperar `active_loja_id` real da base do Orion.
+    # Por segurança, vamos iniciar com active_loja_id=None ou tentar extrair de grupos/permissões se existissem.
+    # No futuro, precisaremos de um JOIN nas tabelas do Orion se necessário.
+    active_loja_id = None
 
-    # Note: Orion should ideally return `active_loja_id` or similar data if needed.
-    # If not, we set it to None or extract from `orion_data`.
-    active_loja_id = orion_data.get("active_loja_id")
-
-    token = create_token(user_id, active_loja_id)
+    # Gera o JWT com base no user_id do Orion
+    token = create_token(user.id, active_loja_id)
     return {"token": token}
 
 @router.get("/me", response=AuthMeOut)
