@@ -12,7 +12,7 @@ class VendasRouter:
         """
         Direciona leituras. 
         Retorna None para permitir que o Django decida (normalmente 'default'),
-        a menos que especificado explicitamente na query com .using('vendas_db').
+        a menos que especificado explicitamente na query com .using('vendas').
         Como usaremos SQL direto, isso tem pouco efeito prático, mas mantém o padrão.
         """
         return None
@@ -32,9 +32,9 @@ class VendasRouter:
 
     def allow_migrate(self, db, app_label, model_name=None, **hints):
         """
-        Impede migrações no banco de vendas_db.
+        Impede migrações no banco de vendas.
         Esta é a regra de segurança mais importante.
         """
-        if db == 'vendas_db':
+        if db == 'vendas':
             return False
         return None
