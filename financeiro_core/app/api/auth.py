@@ -120,18 +120,38 @@ def get_user_from_request(request):
 
 # --- Endpoints ---
 
+import os
+import requests
+
+ORION_AUTH_URL = os.environ.get("ORION_AUTH_URL", "https://orion-system.example.com/api/login")
+
 @router.post("/login", response=TokenSchema)
 def login(request, payload: LoginSchema):
-    user = USERS.get(payload.username)
-    if not user or user["password"] != payload.password:
+    try:
+        response = requests.post(
+            ORION_AUTH_URL,
+            json={"username": payload.username, "password": payload.password},
+            timeout=10
+        )
+    except requests.RequestException:
+        raise HttpError(503, "Erro ao comunicar com o sistema de autenticação (Orion).")
+
+    if response.status_code != 200:
         raise HttpError(401, "Credenciais inválidas")
 
-    # Default active store: first one found
-    active_loja_id = None
-    if user["grupos"] and user["grupos"][0]["lojas"]:
-        active_loja_id = user["grupos"][0]["lojas"][0]["id"]
+    orion_data = response.json()
+    user_id = orion_data.get("user_id")
 
-    token = create_token(user["id"], active_loja_id)
+    if not user_id:
+        # Fallback in case Orion doesn't return user_id,
+        # though a real SSO system likely would.
+        user_id = payload.username
+
+    # Note: Orion should ideally return `active_loja_id` or similar data if needed.
+    # If not, we set it to None or extract from `orion_data`.
+    active_loja_id = orion_data.get("active_loja_id")
+
+    token = create_token(user_id, active_loja_id)
     return {"token": token}
 
 @router.get("/me", response=AuthMeOut)
