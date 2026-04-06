@@ -42,45 +42,27 @@ class VendasClientSQL:
 
     def get_faturamento_por_loja(self, loja_id: int, mes: int, ano: int) -> List[FaturamentoItemDTO]:
         
-        # SQL Otimizado para vendas_venda
-        # REMOVIDO: v.parcelas (coluna não existe no banco legado restaurado)
+        # SQL Otimizado para vendas_venda (Caixa-based, Valor Total - Troco)
         query = """
             WITH vendas_validas AS (
-                SELECT v.id
-                FROM vendas_venda v
-                LEFT JOIN vendas_estorno e ON v.id = e.venda_id
-                WHERE v.loja_id = %s
-                  AND EXTRACT(MONTH FROM v.data_venda) = %s
-                  AND EXTRACT(YEAR FROM v.data_venda) = %s
-                  AND v.ignorar_faturamento = FALSE
-                  AND e.id IS NULL
-            ),
-            transacoes_unificadas AS (
-                -- Pagamento 1
-                SELECT 
+                SELECT
                     v.forma_pagamento as forma,
                     COALESCE(v.subtipo_pagamento_1, 'GERAL') as bandeira,
-                    v.valor_pagamento_1 as valor
+                    (v.valor_total - COALESCE(v.valor_troco, 0)) as valor_liquido
                 FROM vendas_venda v
-                JOIN vendas_validas vv ON v.id = vv.id
-                WHERE v.valor_pagamento_1 > 0
-
-                UNION ALL
-
-                -- Pagamento 2
-                SELECT 
-                    v.forma_pagamento_2 as forma,
-                    COALESCE(v.subtipo_pagamento_2, 'GERAL') as bandeira,
-                    v.valor_pagamento_2 as valor
-                FROM vendas_venda v
-                JOIN vendas_validas vv ON v.id = vv.id
-                WHERE v.valor_pagamento_2 > 0
+                INNER JOIN vendas_caixa c ON v.caixa_id = c.id
+                LEFT JOIN vendas_estorno e ON v.id = e.venda_id
+                WHERE v.loja_id = %s
+                  AND EXTRACT(MONTH FROM c.data) = %s
+                  AND EXTRACT(YEAR FROM c.data) = %s
+                  AND v.ignorar_faturamento = FALSE
+                  AND e.id IS NULL
             )
             SELECT 
                 forma,
                 bandeira,
-                SUM(valor) as total
-            FROM transacoes_unificadas
+                SUM(valor_liquido) as total
+            FROM vendas_validas
             GROUP BY forma, bandeira
         """
         
