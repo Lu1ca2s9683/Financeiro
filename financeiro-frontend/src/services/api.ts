@@ -136,21 +136,24 @@ export const api = {
     return res.json();
   },
 
-  switchStore: async (loja_id: number): Promise<{ active_loja: Loja }> => {
+  switchStore: async (loja_id: number): Promise<{ active_loja: Loja, token: string }> => {
     const res = await fetch(`${API_BASE_URL}/auth/switch-loja`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ loja_id })
     });
 
-    // Hack: Pega o novo token se vier no header (pelo mock)
-    const newToken = res.headers.get("X-New-Token");
-    if (newToken) {
-        localStorage.setItem("financeiro_token", newToken);
-    }
-
     if (!res.ok) throw new Error('Falha ao trocar de loja');
-    return res.json();
+    
+    // O backend agora manda a resposta em JSON com o novo token
+    const data = await res.json();
+    
+    // Pegamos o token do JSON e já salvamos no localStorage
+    if (data.token) {
+        localStorage.setItem("financeiro_token", data.token);
+    }
+    
+    return data;
   },
 
   // --- Categorias ---
