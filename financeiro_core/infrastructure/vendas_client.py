@@ -6,7 +6,7 @@ import re
 
 class VendasClientSQL:
     """
-    Cliente SQL otimizado para ler dados do banco legado (vendas_db).
+    Cliente SQL otimizado para ler dados do banco legado (vendas).
     Nome da tabela identificada: vendas_venda
     """
 
@@ -87,7 +87,7 @@ class VendasClientSQL:
         resultado_dtos = []
         
         try:
-            with connections['vendas_db'].cursor() as cursor:
+            with connections['vendas'].cursor() as cursor:
                 cursor.execute(query, [loja_id, mes, ano])
                 rows = cursor.fetchall()
                 
@@ -116,7 +116,7 @@ class VendasClientSQL:
                     print(f"DEBUG SQL: Raw='{tipo_raw}' -> Mapeado='{tipo_mapeado}' | Valor={valor}")
 
         except Exception as e:
-            print(f"Erro ao consultar banco vendas_db: {e}")
+            print(f"Erro ao consultar banco vendas: {e}")
             raise e
 
         return resultado_dtos
