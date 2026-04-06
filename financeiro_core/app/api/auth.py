@@ -7,6 +7,7 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.contrib.auth.hashers import check_password
 from django.db import connections
+from django.http import HttpResponse
 
 router = Router()
 
@@ -117,6 +118,17 @@ def fetch_user_lojas(user_id: int, is_superuser: bool) -> List[dict]:
             for row in cursor.fetchall():
                 lojas_dict[row[0]] = {"id": row[0], "nome": row[1], "role": "GLOBAL"}
         else:
+            # Regra Nova: Superusuário de Grupo
+            cursor.execute('''
+                SELECT l.id, l.nome
+                FROM vendas_loja l
+                INNER JOIN vendas_grupolojas_super_usuarios_grupo gsu ON l.grupo_id = gsu.grupolojas_id
+                WHERE gsu.user_id = %s AND l.ativa = true
+            ''', [user_id])
+            for row in cursor.fetchall():
+                if row[0] not in lojas_dict:
+                    lojas_dict[row[0]] = {"id": row[0], "nome": row[1], "role": "GESTOR_GRUPO"}
+
             # Regra 2: Gestor
             cursor.execute('''
                 SELECT l.id, l.nome
@@ -195,7 +207,7 @@ def me(request):
     }
 
 @router.post("/switch-loja", response=ActiveLojaOut)
-def switch_loja(request, payload: SwitchLojaSchema):
+def switch_loja(request, response: HttpResponse, payload: SwitchLojaSchema):
     user, _ = get_user_from_request(request)
 
     lojas = fetch_user_lojas(user.id, user.is_superuser)
@@ -212,6 +224,6 @@ def switch_loja(request, payload: SwitchLojaSchema):
 
     # Retorna a loja e injeta um header para o front
     new_token = create_token(user.id, target_loja["id"])
-    response = request.create_response({"active_loja": target_loja})
     response["X-New-Token"] = new_token
-    return response
+
+    return {"active_loja": target_loja}
