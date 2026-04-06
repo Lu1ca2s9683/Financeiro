@@ -100,13 +100,14 @@ def login(request, payload: LoginSchema):
     if not check_password(payload.password, user.password):
         raise HttpError(401, "Credenciais inválidas")
 
-    # O Orion deve ter os grupos e lojas vinculadas na base, mas neste momento de transição
-    # não está explícito no prompt como recuperar `active_loja_id` real da base do Orion.
-    # Por segurança, vamos iniciar com active_loja_id=None ou tentar extrair de grupos/permissões se existissem.
-    # No futuro, precisaremos de um JOIN nas tabelas do Orion se necessário.
-    active_loja_id = None
+    # Busca as lojas do usuário para definir a loja ativa inicial
+    lojas = fetch_user_lojas(user.id, user.is_superuser)
 
-    # Gera o JWT com base no user_id do Orion
+    active_loja_id = None
+    if lojas:
+        active_loja_id = lojas[0]["id"]
+
+    # Gera o JWT com base no user_id do Orion e com a loja ativa inicial
     token = create_token(user.id, active_loja_id)
     return {"token": token}
 
