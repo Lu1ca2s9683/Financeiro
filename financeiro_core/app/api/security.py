@@ -3,23 +3,37 @@ from ninja.security import HttpBearer
 from django.conf import settings
 import jwt
 from ninja.errors import HttpError
+from django.contrib.auth.models import User
 
-SECRET_KEY = "django-insecure-chave-dev-local" # TODO: Load from settings
+SECRET_KEY = settings.SECRET_KEY
 
 class AuthBearer(HttpBearer):
     def authenticate(self, request, token):
+        print("DEBUG: Token recebido")
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+            print(f"DEBUG: Payload decodificado: {payload}")
+
+            # Fetch user strictly from the secondary DB to validate
+            user = User.objects.using('vendas').get(id=payload["user_id"])
+
             request.user_id = payload["user_id"]
             request.active_loja_id = payload.get("active_loja_id")
+            request.user = user  # Attach user object to the request
 
-            # Here we could validate user existence, but for now we trust the token
-            # since it's signed by us (or the trusted external system)
-            return payload
-        except jwt.ExpiredSignatureError:
-            return None # 401
-        except jwt.InvalidTokenError:
-            return None # 401
+            return user
+        except jwt.ExpiredSignatureError as e:
+            print(f"DEBUG: Erro ao validar usuário: {e}")
+            return None
+        except jwt.InvalidTokenError as e:
+            print(f"DEBUG: Erro ao validar usuário: {e}")
+            return None
+        except User.DoesNotExist as e:
+            print(f"DEBUG: Erro ao validar usuário: User {payload.get('user_id')} não encontrado no banco vendas. Erro: {e}")
+            return None
+        except Exception as e:
+            print(f"DEBUG: Erro ao validar usuário: {e}")
+            return None
 
 def get_current_user_id(request):
     return getattr(request, "user_id", None)

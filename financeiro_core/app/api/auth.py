@@ -49,6 +49,10 @@ class AuthMeOut(Schema):
 class ActiveLojaOut(Schema):
     active_loja: LojaOut
 
+class SwitchLojaOut(Schema):
+    active_loja: LojaOut
+    token: str
+
 # --- Helpers ---
 
 def create_token(user_id: int, active_loja_id: Optional[int] = None):
@@ -206,8 +210,9 @@ def me(request):
         "active_loja": active_loja
     }
 
-@router.post("/switch-loja", response=ActiveLojaOut)
-def switch_loja(request, response: HttpResponse, payload: SwitchLojaSchema):
+@router.post("/switch-loja", response=SwitchLojaOut)
+def switch_loja(request, payload: SwitchLojaSchema):
+    print(f"DEBUG: Trocando para a loja ID {payload.loja_id}")
     user, _ = get_user_from_request(request)
 
     lojas = fetch_user_lojas(user.id, user.is_superuser)
@@ -222,8 +227,10 @@ def switch_loja(request, response: HttpResponse, payload: SwitchLojaSchema):
     if not target_loja:
         raise HttpError(403, "Acesso negado à loja solicitada")
 
-    # Retorna a loja e injeta um header para o front
-    new_token = create_token(user.id, target_loja["id"])
-    response["X-New-Token"] = new_token
+    print("DEBUG: Permissão confirmada")
 
-    return {"active_loja": target_loja}
+    # Retorna a loja e o novo token no corpo
+    new_token = create_token(user.id, target_loja["id"])
+    print("DEBUG: Novo token gerado")
+
+    return {"active_loja": target_loja, "token": new_token}

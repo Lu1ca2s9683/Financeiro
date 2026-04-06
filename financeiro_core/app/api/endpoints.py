@@ -182,6 +182,7 @@ class FechamentoOut(Schema):
 @router.get("/dashboard/resumo/{loja_id}/{mes}/{ano}", response=DashboardResumoOut)
 def obter_resumo_dashboard(request, loja_id: int, mes: int, ano: int):
     """Retorna dados agregados para o dashboard."""
+    print(f"DEBUG: Endpoint Dashboard acessado pelo usuário {request.auth}")
     check_permission(request, loja_id)
 
     despesas = ContaPagar.objects.filter(
