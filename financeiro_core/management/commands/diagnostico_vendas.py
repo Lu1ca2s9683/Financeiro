@@ -22,7 +22,7 @@ class Command(BaseCommand):
         """
 
         try:
-            with connections['vendas_db'].cursor() as cursor:
+            with connections['vendas'].cursor() as cursor:
                 # 1. Teste Específico (Loja/Mês/Ano)
                 cursor.execute(query, [LOJA_ID, MES, ANO])
                 row = cursor.fetchone()

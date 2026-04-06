@@ -11,7 +11,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.WARNING('--- INICIANDO TESTE DE CONEXÃO ---'))
         
         # 1. Verifica qual configuração está sendo usada
-        db_config = settings.DATABASES.get('vendas_db', {})
+        db_config = settings.DATABASES.get('vendas', {})
         db_name = db_config.get('NAME', 'Desconhecido')
         db_host = db_config.get('HOST', 'Desconhecido')
         
@@ -24,7 +24,7 @@ class Command(BaseCommand):
 
         # 2. Tenta conectar
         try:
-            db_conn = connections['vendas_db']
+            db_conn = connections['vendas']
             c = db_conn.cursor()
             self.stdout.write(self.style.SUCCESS('1. Conexão TCP estabelecida com sucesso!'))
             

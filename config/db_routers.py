@@ -1,7 +1,7 @@
 class VendasRouter:
     """
     Um router para controlar todas as operações de banco de dados no modelo de vendas.
-    Garante que o banco de dados 'vendas_db' seja tratado como somente leitura
+    Garante que o banco de dados 'vendas' seja tratado como somente leitura
     e que nenhuma migração seja aplicada a ele.
     """
     
