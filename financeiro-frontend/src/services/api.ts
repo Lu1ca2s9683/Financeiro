@@ -144,15 +144,14 @@ export const api = {
     });
 
     if (!res.ok) throw new Error('Falha ao trocar de loja');
-    
-    // O backend agora manda a resposta em JSON com o novo token
+
     const data = await res.json();
-    
-    // Pegamos o token do JSON e já salvamos no localStorage
+
+    // Atualiza o token a partir do JSON response em vez do Header
     if (data.token) {
         localStorage.setItem("financeiro_token", data.token);
     }
-    
+
     return data;
   },
 

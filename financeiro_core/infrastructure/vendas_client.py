@@ -24,14 +24,16 @@ class VendasClientSQL:
         if 'DEBITO' in tipo or 'DÉBITO' in tipo:
             return 'DEBITO'
         
-        # Mapeia 'CREDITO' explícito ou o genérico 'CARTAO' / 'CARTÃO'
-        # Assumimos que se está escrito apenas 'CARTAO', trataremos como Crédito
-        # para garantir o cálculo de taxas (geralmente mais altas que débito).
-        if 'CREDITO' in tipo or 'CRÉDITO' in tipo or 'CARTAO' in tipo or 'CARTÃO' in tipo:
+        if 'CREDITO' in tipo or 'CRÉDITO' in tipo:
             if parcelas > 1:
                 return 'CREDITO_PARCELADO'
             return 'CREDITO_AVISTA'
             
+        # Cartão genérico mapeado para NÃO IDENTIFICADO para evitar distorção nas taxas (0%)
+        # até conciliação manual.
+        if 'CARTAO' in tipo or 'CARTÃO' in tipo:
+            return 'CARTAO_NAO_IDENTIFICADO'
+
         if 'PIX' in tipo:
             return 'PIX'
             
