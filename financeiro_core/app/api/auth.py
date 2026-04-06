@@ -6,6 +6,7 @@ from typing import List, Optional
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.contrib.auth.hashers import check_password
+from django.db import connections
 
 router = Router()
 
@@ -104,17 +105,64 @@ def login(request, payload: LoginSchema):
     token = create_token(user.id, active_loja_id)
     return {"token": token}
 
-# --- Lógica de Grupos Fictícia Temporária ---
-# Substituir por consulta real no Orion quando modelos de GrupoLojas/Lojas estiverem mapeados.
-def get_dummy_grupos():
+# --- Lógica de Permissões via Raw SQL ---
+
+def fetch_user_lojas(user_id: int, is_superuser: bool) -> List[dict]:
+    """Busca as lojas e permissões do usuário direto no banco secundário usando SQL bruto."""
+    lojas_dict = {}
+
+    with connections['vendas'].cursor() as cursor:
+        if is_superuser:
+            cursor.execute("SELECT id, nome FROM vendas_loja WHERE ativa = true")
+            for row in cursor.fetchall():
+                lojas_dict[row[0]] = {"id": row[0], "nome": row[1], "role": "GLOBAL"}
+        else:
+            # Regra 2: Gestor
+            cursor.execute('''
+                SELECT l.id, l.nome
+                FROM vendas_loja l
+                INNER JOIN vendas_loja_gestores lg ON l.id = lg.loja_id
+                WHERE lg.user_id = %s AND l.ativa = true
+            ''', [user_id])
+            for row in cursor.fetchall():
+                if row[0] not in lojas_dict: # Prioridade maior ou mantém se não existir
+                    lojas_dict[row[0]] = {"id": row[0], "nome": row[1], "role": "GESTOR"}
+
+            # Regra 3a: Usuário Base (vendas_userprofile)
+            cursor.execute('''
+                SELECT l.id, l.nome
+                FROM vendas_loja l
+                INNER JOIN vendas_userprofile up ON l.id = up.loja_id
+                WHERE up.user_id = %s AND l.ativa = true
+            ''', [user_id])
+            for row in cursor.fetchall():
+                if row[0] not in lojas_dict:
+                    lojas_dict[row[0]] = {"id": row[0], "nome": row[1], "role": "USUARIO"}
+
+            # Regra 3b: Conferente (vendas_userprofile_lojas_conferencia)
+            cursor.execute('''
+                SELECT l.id, l.nome
+                FROM vendas_loja l
+                INNER JOIN vendas_userprofile_lojas_conferencia uplc ON l.id = uplc.loja_id
+                INNER JOIN vendas_userprofile up ON uplc.userprofile_id = up.id
+                WHERE up.user_id = %s AND l.ativa = true
+            ''', [user_id])
+            for row in cursor.fetchall():
+                if row[0] not in lojas_dict:
+                    lojas_dict[row[0]] = {"id": row[0], "nome": row[1], "role": "CONFERENTE"}
+
+    return list(lojas_dict.values())
+
+def mount_grupos(lojas: List[dict]) -> List[dict]:
+    """Cria um grupo aglutinador para as lojas encontradas."""
+    if not lojas:
+        return []
     return [
         {
             "id": 1,
-            "nome": "Acesso Geral",
-            "role": "GESTOR",
-            "lojas": [
-                { "id": 1, "nome": "Matriz", "role": "GESTOR" }
-            ]
+            "nome": "Minhas Lojas",
+            "role": "MEMBER",
+            "lojas": lojas
         }
     ]
 
@@ -122,19 +170,19 @@ def get_dummy_grupos():
 def me(request):
     user, active_loja_id = get_user_from_request(request)
 
-    grupos_ficticios = get_dummy_grupos()
+    lojas = fetch_user_lojas(user.id, user.is_superuser)
+    grupos = mount_grupos(lojas)
 
     active_loja = None
     if active_loja_id:
-        for grupo in grupos_ficticios:
-            for loja in grupo["lojas"]:
-                if loja["id"] == active_loja_id:
-                    active_loja = loja
-                    break
+        for loja in lojas:
+            if loja["id"] == active_loja_id:
+                active_loja = loja
+                break
 
-    # Fallback to first store if none is strictly matched
-    if not active_loja and grupos_ficticios and grupos_ficticios[0]["lojas"]:
-        active_loja = grupos_ficticios[0]["lojas"][0]
+    # Fallback para a primeira loja, se houver
+    if not active_loja and lojas:
+        active_loja = lojas[0]
 
     return {
         "user": {
@@ -142,7 +190,7 @@ def me(request):
             "nome": user.first_name or user.username,
             "email": user.email
         },
-        "grupos": grupos_ficticios,
+        "grupos": grupos,
         "active_loja": active_loja
     }
 
@@ -150,15 +198,14 @@ def me(request):
 def switch_loja(request, payload: SwitchLojaSchema):
     user, _ = get_user_from_request(request)
 
-    grupos_ficticios = get_dummy_grupos()
+    lojas = fetch_user_lojas(user.id, user.is_superuser)
 
     # Valida se o usuário tem acesso à loja
     target_loja = None
-    for grupo in grupos_ficticios:
-        for loja in grupo["lojas"]:
-            if loja["id"] == payload.loja_id:
-                target_loja = loja
-                break
+    for loja in lojas:
+        if loja["id"] == payload.loja_id:
+            target_loja = loja
+            break
 
     if not target_loja:
         raise HttpError(403, "Acesso negado à loja solicitada")
