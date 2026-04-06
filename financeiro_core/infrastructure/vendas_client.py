@@ -50,7 +50,7 @@ class VendasClientSQL:
                     COALESCE(v.subtipo_pagamento_1, 'GERAL') as bandeira,
                     (v.valor_total - COALESCE(v.valor_troco, 0)) as valor_liquido
                 FROM vendas_venda v
-                INNER JOIN vendas_caixa c ON v.caixa_id = c.id
+                INNER JOIN vendas_caixadiario c ON v.caixa_id = c.id
                 LEFT JOIN vendas_estorno e ON v.id = e.venda_id
                 WHERE v.loja_id = %s
                   AND EXTRACT(MONTH FROM c.data) = %s
