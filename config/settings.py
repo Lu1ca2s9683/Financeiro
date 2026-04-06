@@ -10,7 +10,7 @@ import dj_database_url
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # --- SEGURANÇA ---
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-chave-dev-local')
+SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-chave-dev-local-minimo-32-bytes')
 
 # DEBUG será False se estiver no Render
 DEBUG = 'RENDER' not in os.environ

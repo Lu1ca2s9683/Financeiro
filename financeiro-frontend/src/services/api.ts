@@ -143,14 +143,16 @@ export const api = {
       body: JSON.stringify({ loja_id })
     });
 
-    // Hack: Pega o novo token se vier no header (pelo mock)
-    const newToken = res.headers.get("X-New-Token");
-    if (newToken) {
-        localStorage.setItem("financeiro_token", newToken);
+    if (!res.ok) throw new Error('Falha ao trocar de loja');
+
+    const data = await res.json();
+
+    // Atualiza o token a partir do JSON response em vez do Header
+    if (data.token) {
+        localStorage.setItem("financeiro_token", data.token);
     }
 
-    if (!res.ok) throw new Error('Falha ao trocar de loja');
-    return res.json();
+    return data;
   },
 
   // --- Categorias ---

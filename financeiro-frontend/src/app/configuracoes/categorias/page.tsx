@@ -10,6 +10,13 @@ export default function CategoriasPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Avoid race condition by ensuring token is available
+    const token = localStorage.getItem('financeiro_token');
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+
     api.getCategorias()
       .then(setCategorias)
       .catch(console.error)
@@ -28,7 +35,25 @@ export default function CategoriasPage() {
             <p className="text-slate-500">Gestão do plano de contas</p>
           </div>
         </div>
-        <button className="bg-indigo-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-indigo-700 transition shadow-sm">
+        <button
+          className="bg-indigo-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-indigo-700 transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={loading || !localStorage.getItem('financeiro_token')}
+          onClick={async () => {
+            try {
+              // Basic example to demonstrate the fix, actual implementation might open a modal
+              const nome = prompt("Nome da Categoria:");
+              if (!nome) return;
+              setLoading(true);
+              await api.createCategoria(nome);
+              const updated = await api.getCategorias();
+              setCategorias(updated);
+            } catch (err) {
+              alert("Erro ao criar categoria: " + (err as Error).message);
+            } finally {
+              setLoading(false);
+            }
+          }}
+        >
           <Plus size={18} /> Nova Categoria
         </button>
       </div>

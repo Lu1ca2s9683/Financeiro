@@ -78,10 +78,10 @@ export default function DashboardPage() {
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <KpiCard title="Faturamento Bruto" value={dados.faturamento_bruto} icon={DollarSign} trend="neutral" delay="delay-0" />
-            <KpiCard title="Taxas de Cartão" value={dados.total_taxas} icon={Layers} trend="down" isExpense delay="delay-100" />
-            <KpiCard title="Despesas Operacionais" value={dados.total_despesas} icon={TrendingDown} trend="down" isExpense delay="delay-200" />
-            <KpiCard title="Resultado Operacional" value={dados.resultado_operacional} icon={TrendingUp} trend="up" highlight delay="delay-300" />
+            <KpiCard title="Faturamento Bruto" value={dados.faturamento_bruto ?? 0} icon={DollarSign} trend="neutral" delay="delay-0" />
+            <KpiCard title="Taxas de Cartão" value={dados.total_taxas ?? 0} icon={Layers} trend="down" isExpense delay="delay-100" />
+            <KpiCard title="Despesas Operacionais" value={dados.total_despesas ?? 0} icon={TrendingDown} trend="down" isExpense delay="delay-200" />
+            <KpiCard title="Resultado Operacional" value={dados.resultado_operacional ?? 0} icon={TrendingUp} trend="up" highlight delay="delay-300" />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-enter delay-300">
@@ -94,7 +94,7 @@ export default function DashboardPage() {
               </h3>
               
               <div className="space-y-6">
-                <ResultRow label="Faturamento Bruto" value={dados.faturamento_bruto} isBold />
+                <ResultRow label="Faturamento Bruto" value={dados.faturamento_bruto ?? 0} isBold />
                 
                 <div className="pl-4 border-l-2 border-slate-100 space-y-3">
                   <ResultRow label="(-) Taxas Administrativas" value={dados.total_taxas} isNegative />
