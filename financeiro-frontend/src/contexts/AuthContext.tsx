@@ -69,17 +69,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const switchStore = async (lojaId: number) => {
     try {
-      const response = await api.switchStore(lojaId);
-      setActiveLoja(response.active_loja);
-
-      // Se a API retornou novo token (ver api.ts), atualizamos estado local também se necessário
-      // Mas o api.ts já atualiza localStorage.
-      // Precisamos forçar atualização do token no state se mudou?
-      // api.switchStore já lidou com localStorage.
-      // O ideal é recarregar dados ou apenas atualizar activeLoja.
-      // Vamos recarregar 'me' para garantir consistência.
-      await fetchMe();
-      window.location.reload(); // Força reload para limpar estados de outras páginas (ex: FinanceiroContext)
+      // Chama a API, que já vai salvar o token novo no localStorage
+      await api.switchStore(lojaId);
+      
+      // O reload da página é a forma mais segura de forçar TODOS os componentes
+      // (Dashboards, Contextos) a montarem novamente com o token novo
+      window.location.reload(); 
     } catch (error) {
       alert('Erro ao trocar loja');
     }

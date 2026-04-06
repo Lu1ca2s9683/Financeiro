@@ -136,7 +136,7 @@ export const api = {
     return res.json();
   },
 
-  switchStore: async (loja_id: number): Promise<{ active_loja: Loja }> => {
+  switchStore: async (loja_id: number): Promise<{ active_loja: Loja, token: string }> => {
     const res = await fetch(`${API_BASE_URL}/auth/switch-loja`, {
       method: 'POST',
       headers: getHeaders(),
