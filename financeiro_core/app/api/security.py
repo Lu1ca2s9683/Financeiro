@@ -44,7 +44,7 @@ def get_current_active_loja_id(request):
 def check_permission(request, loja_id_requested: int):
     active = get_current_active_loja_id(request)
     if not active:
-        raise HttpError(401, "Usuário sem loja ativa")
+        raise HttpError(400, "Nenhuma loja ativa no contexto")
 
     if active != loja_id_requested:
         raise HttpError(403, f"Acesso negado: Você está logado na loja {active}, mas tentou acessar a loja {loja_id_requested}.")
