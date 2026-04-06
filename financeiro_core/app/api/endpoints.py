@@ -264,17 +264,17 @@ def obter_resumo_dashboard(request, loja_id: int, mes: int, ano: int):
 
 # --- CATEGORIAS (CRUD) ---
 
-@router.get("/categorias/", response=List[CategoriaOut])
+@router.get("/categorias/", response=List[CategoriaOut], auth=AuthBearer())
 def listar_categorias(request):
     """Lista todas as categorias de despesa ativas."""
     return CategoriaDespesa.objects.filter(ativa=True)
 
-@router.post("/categorias/", response=CategoriaOut)
+@router.post("/categorias/", response=CategoriaOut, auth=AuthBearer())
 def criar_categoria(request, payload: CategoriaIn):
     """Cria uma nova categoria."""
     return CategoriaDespesa.objects.create(**payload.dict())
 
-@router.put("/categorias/{categoria_id}", response=CategoriaOut)
+@router.put("/categorias/{categoria_id}", response=CategoriaOut, auth=AuthBearer())
 def editar_categoria(request, categoria_id: int, payload: CategoriaIn):
     """Edita nome ou status da categoria."""
     cat = get_object_or_404(CategoriaDespesa, id=categoria_id)
@@ -283,7 +283,7 @@ def editar_categoria(request, categoria_id: int, payload: CategoriaIn):
     cat.save()
     return cat
 
-@router.delete("/categorias/{categoria_id}")
+@router.delete("/categorias/{categoria_id}", auth=AuthBearer())
 def excluir_categoria(request, categoria_id: int):
     """Exclui categoria se não houver despesas vinculadas."""
     cat = get_object_or_404(CategoriaDespesa, id=categoria_id)
