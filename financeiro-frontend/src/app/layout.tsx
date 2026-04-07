@@ -4,7 +4,6 @@ import './globals.css';
 import { Sidebar } from '@/components/Sidebar';
 import { FinanceiroProvider } from '@/contexts/FinanceiroContext';
 import { AuthProvider } from '@/contexts/AuthContext';
-import { DebugPanel } from '@/components/DebugPanel';
 import { MainLayout } from '@/components/MainLayout';
 
 const inter = Inter({ 
@@ -29,7 +28,6 @@ export default function RootLayout({
         <AuthProvider>
           <FinanceiroProvider>
              <MainLayout>{children}</MainLayout>
-             <DebugPanel />
           </FinanceiroProvider>
         </AuthProvider>
       </body>

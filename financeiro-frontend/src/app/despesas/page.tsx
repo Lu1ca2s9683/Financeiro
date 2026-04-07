@@ -113,14 +113,14 @@ export default function DespesasPage() {
       </div>
 
       {/* Tabela de Dados */}
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm min-h-[400px]">
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm min-h-[400px] overflow-x-auto">
         {loading ? (
           <div className="flex flex-col items-center justify-center h-64 text-slate-400 animate-pulse">
             <div className="w-12 h-12 bg-slate-200 rounded-full mb-4"></div>
             <p>Carregando despesas de {mes}/{ano}...</p>
           </div>
         ) : (
-          <table className="w-full text-left text-sm">
+          <table className="w-full text-left text-sm min-w-[800px]">
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase text-xs font-semibold sticky top-0">
               <tr>
                 <th className="px-6 py-4">Descrição</th>
