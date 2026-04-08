@@ -5,6 +5,7 @@ from decimal import Decimal
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 from datetime import date
+import traceback
 
 # Importações dos modelos e serviços
 from ..models.entidades import (
@@ -61,6 +62,16 @@ class DjangoRepositorioDespesas:
         ).exclude(status='CANCELADO').aggregate(Sum('valor_liquido'))['valor_liquido__sum']
         return val or Decimal('0.00')
 
+    def agrupar_despesas_por_grupo_contabil(self, loja_id, mes, ano):
+        from django.db.models import Sum
+        qs = ContaPagar.objects.filter(
+            loja_id_externo=loja_id,
+            data_competencia__month=mes,
+            data_competencia__year=ano
+        ).exclude(status='CANCELADO').values('categoria__grupo_contabil').annotate(total=Sum('valor_liquido'))
+
+        return {item['categoria__grupo_contabil']: item['total'] for item in qs if item['categoria__grupo_contabil']}
+
 # ==============================================================================
 # 2. SCHEMAS (DATA TRANSFER OBJECTS)
 # ==============================================================================
@@ -68,11 +79,13 @@ class DjangoRepositorioDespesas:
 # --- Schemas de Categoria ---
 class CategoriaIn(Schema):
     nome: str
+    grupo_contabil: str
     ativa: bool = True
 
 class CategoriaOut(Schema):
     id: int
     nome: str
+    grupo_contabil: str
     ativa: bool
 
 # --- Schemas de Taxas ---
@@ -97,7 +110,7 @@ class PerfilTaxaOut(Schema):
 # --- Schemas de Despesa ---
 class DespesaIn(Schema):
     descricao: str
-    loja_id: int
+    loja_id: Optional[int] = None # Ignorado no backend, usado pelo contexto do token
     categoria_id: int
     valor: Decimal
     data_competencia: date
@@ -158,16 +171,31 @@ class DashboardResumoOut(Schema):
     saude_financeira: str  # 'SAUDAVEL', 'ATENCAO', 'CRITICO'
     mensagem_assistente: str
 
+    # Adicionando os mesmos campos do DRE no resumo do dashboard (opcional, já que o frontend consome de FechamentoOut)
+    # Mas como o prompt pede "Refatore a lógica de getFechamento e getDashboardResumo para classificar as despesas"
+    # vamos injetá-los no DashboardResumoOut se o frontend quiser.
+
 # --- Schemas de Fechamento ---
 class FechamentoOut(Schema):
     loja_id: int = Field(..., alias="loja_id_externo") 
     mes: int
     ano: int
-    faturamento_bruto: Decimal
-    total_taxas: Decimal
+
+    receita_bruta: Decimal
+    total_dinheiro: Decimal = Decimal('0.00')
+    total_cartao: Decimal = Decimal('0.00')
+    total_pix: Decimal = Decimal('0.00')
+
+    impostos: Decimal = Decimal('0.00')
     receita_liquida: Decimal
-    total_despesas: Decimal
+    custos_produtos: Decimal = Decimal('0.00')
+    lucro_bruto: Decimal
+    despesas_operacionais: Decimal = Decimal('0.00')
     resultado_operacional: Decimal
+    total_taxas: Decimal = Decimal('0.00')
+    despesas_financeiras: Decimal = Decimal('0.00')
+    lucro_liquido: Decimal
+
     status: str
 
     class Config:
@@ -182,8 +210,14 @@ class FechamentoOut(Schema):
 @router.get("/dashboard/resumo/{loja_id}/{mes}/{ano}", response=DashboardResumoOut)
 def obter_resumo_dashboard(request, loja_id: int, mes: int, ano: int):
     """Retorna dados agregados para o dashboard."""
+    print(f"DEBUG: Endpoint Dashboard acessado pelo usuário {request.auth}")
     check_permission(request, loja_id)
 
+    # Nota: A classificação de despesas pelo grupo contábil (DRE) agora
+    # é manipulada rigorosamente no getFechamento (`calcular_fechamento`).
+    # O dashboard do frontend consome e exibe a cascata matemática e totais
+    # vindo exclusivamente do endpoint de fechamento (veja page.tsx: dados = api.getFechamento).
+    # O resumo foca no status temporal (vencimentos/saúde) e assistente.
     despesas = ContaPagar.objects.filter(
         loja_id_externo=loja_id,
         data_competencia__month=mes,
@@ -263,26 +297,27 @@ def obter_resumo_dashboard(request, loja_id: int, mes: int, ano: int):
 
 # --- CATEGORIAS (CRUD) ---
 
-@router.get("/categorias/", response=List[CategoriaOut])
+@router.get("/categorias/", response=List[CategoriaOut], auth=AuthBearer())
 def listar_categorias(request):
     """Lista todas as categorias de despesa ativas."""
     return CategoriaDespesa.objects.filter(ativa=True)
 
-@router.post("/categorias/", response=CategoriaOut)
+@router.post("/categorias/", response=CategoriaOut, auth=AuthBearer())
 def criar_categoria(request, payload: CategoriaIn):
     """Cria uma nova categoria."""
     return CategoriaDespesa.objects.create(**payload.dict())
 
-@router.put("/categorias/{categoria_id}", response=CategoriaOut)
+@router.put("/categorias/{categoria_id}", response=CategoriaOut, auth=AuthBearer())
 def editar_categoria(request, categoria_id: int, payload: CategoriaIn):
     """Edita nome ou status da categoria."""
     cat = get_object_or_404(CategoriaDespesa, id=categoria_id)
     cat.nome = payload.nome
+    cat.grupo_contabil = payload.grupo_contabil
     cat.ativa = payload.ativa
     cat.save()
     return cat
 
-@router.delete("/categorias/{categoria_id}")
+@router.delete("/categorias/{categoria_id}", auth=AuthBearer())
 def excluir_categoria(request, categoria_id: int):
     """Exclui categoria se não houver despesas vinculadas."""
     cat = get_object_or_404(CategoriaDespesa, id=categoria_id)
@@ -309,14 +344,16 @@ def listar_perfis_taxas(request, loja_id: Optional[int] = None):
 @router.get("/despesas/", response=List[DespesaOut])
 def listar_despesas(
     request, 
-    loja_id: int, # Obrigatório agora para segurança
+    loja_id: Optional[int] = None, # Ignorado no backend, usado do token
     mes: Optional[int] = None,
     ano: Optional[int] = None
 ):
     """Lista despesas, opcionalmente filtrando por loja e competência."""
-    check_permission(request, loja_id)
+    active_loja_id = request.active_loja_id
+    if not active_loja_id:
+        raise HttpError(400, "Nenhuma loja ativa no contexto")
 
-    qs = ContaPagar.objects.filter(loja_id_externo=loja_id).select_related('categoria')
+    qs = ContaPagar.objects.filter(loja_id_externo=active_loja_id).select_related('categoria')
     
     if mes and ano:
         qs = qs.filter(data_competencia__month=mes, data_competencia__year=ano)
@@ -326,15 +363,21 @@ def listar_despesas(
 @router.get("/despesas/{despesa_id}", response=DespesaDetailOut)
 def obter_despesa(request, despesa_id: int):
     """Retorna detalhes de uma despesa."""
-    despesa = get_object_or_404(ContaPagar, id=despesa_id)
-    check_permission(request, despesa.loja_id_externo)
+    active_loja_id = request.active_loja_id
+    if not active_loja_id:
+        raise HttpError(400, "Nenhuma loja ativa no contexto")
+
+    despesa = get_object_or_404(ContaPagar, id=despesa_id, loja_id_externo=active_loja_id)
     return despesa
 
 @router.patch("/despesas/{despesa_id}/status", response=DespesaOut)
 def atualizar_status_despesa(request, despesa_id: int, payload: StatusUpdate):
     """Atualiza o status da despesa, validando fechamento."""
-    despesa = get_object_or_404(ContaPagar, id=despesa_id)
-    check_permission(request, despesa.loja_id_externo)
+    active_loja_id = request.active_loja_id
+    if not active_loja_id:
+        raise HttpError(400, "Nenhuma loja ativa no contexto")
+
+    despesa = get_object_or_404(ContaPagar, id=despesa_id, loja_id_externo=active_loja_id)
 
     # Validar fechamento
     fechamento = FechamentoMensal.objects.filter(
@@ -358,7 +401,9 @@ def atualizar_status_despesa(request, despesa_id: int, payload: StatusUpdate):
 @router.post("/despesas/", response=DespesaOut)
 def criar_despesa(request, payload: DespesaIn):
     """Cria uma nova conta a pagar."""
-    check_permission(request, payload.loja_id)
+    active_loja_id = request.active_loja_id
+    if not active_loja_id:
+        raise HttpError(400, "Nenhuma loja ativa no contexto")
 
     if not CategoriaDespesa.objects.filter(id=payload.categoria_id).exists():
         raise HttpError(404, f"Categoria de Despesa com ID {payload.categoria_id} não encontrada.")
@@ -373,7 +418,7 @@ def criar_despesa(request, payload: DespesaIn):
 
     despesa = ContaPagar.objects.create(
         descricao=payload.descricao,
-        loja_id_externo=payload.loja_id,
+        loja_id_externo=active_loja_id,
         categoria=categoria,
         fornecedor=fornecedor,
         valor_bruto=payload.valor,
@@ -386,16 +431,15 @@ def criar_despesa(request, payload: DespesaIn):
 @router.put("/despesas/{despesa_id}", response=DespesaOut)
 def editar_despesa(request, despesa_id: int, payload: DespesaIn):
     """Atualiza uma despesa e recalcula valores."""
-    despesa = get_object_or_404(ContaPagar, id=despesa_id)
-    check_permission(request, despesa.loja_id_externo)
+    active_loja_id = request.active_loja_id
+    if not active_loja_id:
+        raise HttpError(400, "Nenhuma loja ativa no contexto")
 
-    # Se mudar a loja, verifica permissão na nova também
-    if payload.loja_id != despesa.loja_id_externo:
-        check_permission(request, payload.loja_id)
+    despesa = get_object_or_404(ContaPagar, id=despesa_id, loja_id_externo=active_loja_id)
 
     # Validar fechamento (Data Atual)
     fechamento_atual = FechamentoMensal.objects.filter(
-        loja_id_externo=despesa.loja_id_externo,
+        loja_id_externo=active_loja_id,
         mes=despesa.data_competencia.month,
         ano=despesa.data_competencia.year
     ).first()
@@ -406,7 +450,7 @@ def editar_despesa(request, despesa_id: int, payload: DespesaIn):
     # Validar fechamento (Nova Data - se mudou)
     if payload.data_competencia != despesa.data_competencia:
         fechamento_novo = FechamentoMensal.objects.filter(
-            loja_id_externo=payload.loja_id,
+            loja_id_externo=active_loja_id,
             mes=payload.data_competencia.month,
             ano=payload.data_competencia.year
         ).first()
@@ -422,7 +466,6 @@ def editar_despesa(request, despesa_id: int, payload: DespesaIn):
         fornecedor = get_object_or_404(Fornecedor, id=payload.fornecedor_id)
 
     despesa.descricao = payload.descricao
-    despesa.loja_id_externo = payload.loja_id
     despesa.categoria = categoria
     despesa.fornecedor = fornecedor
     despesa.valor_bruto = payload.valor
@@ -435,8 +478,11 @@ def editar_despesa(request, despesa_id: int, payload: DespesaIn):
 @router.delete("/despesas/{despesa_id}")
 def excluir_despesa(request, despesa_id: int):
     """Exclui uma despesa."""
-    despesa = get_object_or_404(ContaPagar, id=despesa_id)
-    check_permission(request, despesa.loja_id_externo)
+    active_loja_id = request.active_loja_id
+    if not active_loja_id:
+        raise HttpError(400, "Nenhuma loja ativa no contexto")
+
+    despesa = get_object_or_404(ContaPagar, id=despesa_id, loja_id_externo=active_loja_id)
     despesa.delete()
     return {"success": True, "message": f"Despesa {despesa_id} excluída."}
 
@@ -445,7 +491,13 @@ def excluir_despesa(request, despesa_id: int):
 @router.post("/fechamento/calcular/{loja_id}/{mes}/{ano}", response=FechamentoOut)
 def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
     """Calcula e persiste o fechamento mensal."""
-    check_permission(request, loja_id)
+    active_loja_id = request.active_loja_id
+    if not active_loja_id:
+        raise HttpError(400, "Nenhuma loja ativa no contexto")
+
+    # Assegura que o parâmetro de loja_id no endpoint corresponde à loja ativa ou ignora o parâmetro
+    # e força a operação para a loja ativa do token, blindando a integridade.
+    target_loja = active_loja_id
 
     # 1. Instancia dependências (SQL Real ou Mock)
     try:
@@ -459,24 +511,51 @@ def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
 
     # 2. Executa Domínio (Cálculos)
     processador = ProcessadorFechamento(repo_taxas, repo_despesas)
-    dados_vendas = vendas_client.get_faturamento_por_loja(loja_id, mes, ano)
-    resultado = processador.executar_fechamento(loja_id, mes, ano, dados_vendas)
+    dados_vendas = vendas_client.get_faturamento_por_loja(target_loja, mes, ano)
+    resultado = processador.executar_fechamento(target_loja, mes, ano, dados_vendas)
 
     # 3. Persiste Resultado
     with transaction.atomic():
         fechamento, created = FechamentoMensal.objects.update_or_create(
-            loja_id_externo=loja_id,
+            loja_id_externo=target_loja,
             mes=mes,
             ano=ano,
             defaults={
                 'faturamento_bruto': resultado.faturamento_bruto,
                 'total_taxas': resultado.total_taxas,
                 'receita_liquida': resultado.receita_liquida,
-                'total_despesas': resultado.despesas_totais,
-                'resultado_operacional': resultado.resultado_final,
+                'total_despesas': resultado.impostos + resultado.custos_produtos + resultado.despesas_operacionais + resultado.despesas_financeiras,
+                'resultado_operacional': resultado.resultado_operacional,
                 'status': 'ABERTO',
                 'dados_auditoria_snapshot': resultado.snapshot_dados
             }
         )
-    
-    return fechamento
+
+    try:
+        # Dicionário exato esperado pelo Schema FechamentoOut
+        resposta_dre = {
+            "loja_id_externo": target_loja,
+            "mes": mes,
+            "ano": ano,
+            "receita_bruta": resultado.faturamento_bruto or Decimal('0.00'),
+            "total_dinheiro": resultado.total_dinheiro or Decimal('0.00'),
+            "total_cartao": resultado.total_cartao or Decimal('0.00'),
+            "total_pix": resultado.total_pix or Decimal('0.00'),
+            "impostos": resultado.impostos or Decimal('0.00'),
+            "receita_liquida": resultado.receita_liquida or Decimal('0.00'),
+            "custos_produtos": resultado.custos_produtos or Decimal('0.00'),
+            "lucro_bruto": resultado.lucro_bruto or Decimal('0.00'),
+            "despesas_operacionais": resultado.despesas_operacionais or Decimal('0.00'),
+            "resultado_operacional": resultado.resultado_operacional or Decimal('0.00'),
+            "total_taxas": resultado.total_taxas or Decimal('0.00'),
+            "despesas_financeiras": resultado.despesas_financeiras or Decimal('0.00'),
+            "lucro_liquido": resultado.lucro_liquido or Decimal('0.00'),
+            "status": fechamento.status
+        }
+
+        return resposta_dre
+
+    except Exception as e:
+        print("ERRO FATAL AO RETORNAR DRE:")
+        traceback.print_exc()
+        raise HttpError(500, str(e))

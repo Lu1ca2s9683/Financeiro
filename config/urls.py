@@ -7,6 +7,7 @@ from ninja import NinjaAPI
 
 # Importa o roteador definido no módulo financeiro
 from financeiro_core.app.api.endpoints import router as financeiro_router
+from financeiro_core.app.api.auth import router as auth_router
 
 # Instancia a API do Django Ninja
 api = NinjaAPI(
@@ -18,10 +19,13 @@ api = NinjaAPI(
 # Adiciona as rotas do módulo financeiro (ex: /api/financeiro/despesas)
 api.add_router("/financeiro", financeiro_router)
 
+# Adiciona as rotas de autenticação (ex: /api/financeiro/auth/login)
+api.add_router("/financeiro/auth", auth_router)
+
 urlpatterns = [
     # Rota para o painel administrativo do Django
     path('admin/', admin.site.urls),
     
-    # Rota base para a API (inclui a documentação automática em /api/docs)
+    # Rota base para a API principal (inclui a documentação automática em /api/docs)
     path('api/', api.urls),
 ]

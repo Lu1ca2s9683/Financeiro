@@ -10,7 +10,7 @@ import dj_database_url
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # --- SEGURANÇA ---
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-chave-dev-local')
+SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-chave-dev-local-minimo-32-bytes')
 
 # DEBUG será False se estiver no Render
 DEBUG = 'RENDER' not in os.environ
@@ -101,7 +101,7 @@ DATABASES = {
         'HOST': 'localhost',
         'PORT': '5432',
     },
-    'vendas_db': {
+    'vendas': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'loja_producao_backup',
         'USER': 'postgres',
@@ -119,14 +119,14 @@ if 'DATABASE_URL' in os.environ:
     # 2. Banco Secundário (Vendas)
     if 'VENDAS_DATABASE_URL' in os.environ:
         # Conecta no banco real de vendas
-        DATABASES['vendas_db'] = dj_database_url.parse(
+        DATABASES['vendas'] = dj_database_url.parse(
             os.environ['VENDAS_DATABASE_URL'],
             conn_max_age=600,
             ssl_require=True
         )
     else:
         # Fallback: Usa o mesmo banco do financeiro (se fez restore lá)
-        DATABASES['vendas_db'] = DATABASES['default']
+        DATABASES['vendas'] = DATABASES['default']
 
 # Segurança extra
 elif 'RENDER' in os.environ:

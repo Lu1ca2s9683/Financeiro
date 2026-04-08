@@ -15,7 +15,6 @@ export function DespesaForm({ initialData, onSuccess, onCancel }: DespesaFormPro
 
   const [form, setForm] = useState({
     descricao: '',
-    loja_id: 1,
     categoria_id: '',
     valor: '',
     data_competencia: new Date().toISOString().slice(0, 10),
@@ -26,7 +25,6 @@ export function DespesaForm({ initialData, onSuccess, onCancel }: DespesaFormPro
     if (initialData) {
       setForm({
         descricao: initialData.descricao,
-        loja_id: initialData.loja_id_externo,
         categoria_id: initialData.categoria ? String(initialData.categoria.id) : '',
         valor: String(initialData.valor_bruto),
         data_competencia: initialData.data_competencia,

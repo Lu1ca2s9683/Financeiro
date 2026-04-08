@@ -24,12 +24,22 @@ class TaxaAplicavelDTO:
 
 @dataclass
 class ResultadoFechamentoDTO:
-    """Objeto de transferência com o resultado final do cálculo de fechamento."""
+    """Objeto de transferência com o resultado final do cálculo de fechamento e DRE."""
     faturamento_bruto: Decimal
-    total_taxas: Decimal
+    total_dinheiro: Decimal
+    total_cartao: Decimal
+    total_pix: Decimal
+
+    impostos: Decimal
     receita_liquida: Decimal
-    despesas_totais: Decimal
-    resultado_final: Decimal
+    custos_produtos: Decimal
+    lucro_bruto: Decimal
+    despesas_operacionais: Decimal
+    resultado_operacional: Decimal
+    total_taxas: Decimal # Mantido para compatibilidade, mas compõe a despesa financeira
+    despesas_financeiras: Decimal
+    lucro_liquido: Decimal
+
     snapshot_dados: Dict[str, Any] # Dicionário para auditoria
 
 # --- Interfaces (Adapters) ---
@@ -40,6 +50,10 @@ class IRepositorioTaxas:
 
 class IRepositorioDespesas:
     def somar_despesas_competencia(self, loja_id: int, mes: int, ano: int) -> Decimal:
+        raise NotImplementedError
+
+    def agrupar_despesas_por_grupo_contabil(self, loja_id: int, mes: int, ano: int) -> Dict[str, Decimal]:
+        """Retorna as despesas agrupadas por GRUPO_CONTABIL."""
         raise NotImplementedError
 
 # --- Serviços de Domínio ---
@@ -91,15 +105,24 @@ class CalculadoraFinanceira:
         total_taxas = CalculadoraFinanceira._arredondar(total_taxas)
         receita_liquida = total_bruto - total_taxas
         
+        # Sumariza subtotais de pagamento
+        # O sum() padrão retorna 0 (int) para listas vazias, o que quebra o .quantize() do Decimal
+        total_dinheiro = sum((i.valor_bruto for i in itens_venda if i.tipo_pagamento == 'DINHEIRO'), Decimal('0.00'))
+        total_cartao = sum((i.valor_bruto for i in itens_venda if 'CREDITO' in i.tipo_pagamento or 'DEBITO' in i.tipo_pagamento or 'CARTAO' in i.tipo_pagamento), Decimal('0.00'))
+        total_pix = sum((i.valor_bruto for i in itens_venda if i.tipo_pagamento == 'PIX'), Decimal('0.00'))
+
         return {
             "total_bruto": total_bruto,
             "total_taxas": total_taxas,
-            "receita_liquida": receita_liquida
+            "total_dinheiro": CalculadoraFinanceira._arredondar(total_dinheiro),
+            "total_cartao": CalculadoraFinanceira._arredondar(total_cartao),
+            "total_pix": CalculadoraFinanceira._arredondar(total_pix)
         }
 
 class ProcessadorFechamento:
     """
     Orquestrador do processo de fechamento mensal.
+    Agora reflete um DRE estruturado em Cascata.
     """
     
     def __init__(self, repo_taxas: IRepositorioTaxas, repo_despesas: IRepositorioDespesas):
@@ -114,19 +137,41 @@ class ProcessadorFechamento:
         dados_vendas_api: List[FaturamentoItemDTO]
     ) -> ResultadoFechamentoDTO:
         
-        # 1. Calcular Receita Líquida (Vendas - Taxas)
-        calculo_receita = CalculadoraFinanceira.calcular_liquido_vendas(
+        # 1. Calcular Vendas Base e Taxas de Cartão
+        vendas = CalculadoraFinanceira.calcular_liquido_vendas(
             dados_vendas_api, self.repo_taxas, loja_id
         )
         
-        # 2. Obter Total de Despesas (Regime de Competência)
-        despesas_raw = self.repo_despesas.somar_despesas_competencia(loja_id, mes, ano)
-        total_despesas = CalculadoraFinanceira._arredondar(despesas_raw)
+        faturamento_bruto = vendas['total_bruto']
+        total_taxas_cartao = vendas['total_taxas']
+
+        # 2. Obter Despesas por Grupo Contábil
+        grupos_despesa = self.repo_despesas.agrupar_despesas_por_grupo_contabil(loja_id, mes, ano)
         
-        # 3. Calcular Resultado Operacional
-        resultado_operacional = calculo_receita['receita_liquida'] - total_despesas
+        # Fallback seguro para Decimal('0.00') caso o banco retorne None para algum grupo
+        impostos = grupos_despesa.get('IMPOSTOS') or Decimal('0.00')
+        custos = grupos_despesa.get('CUSTOS') or Decimal('0.00')
+        pessoal = grupos_despesa.get('PESSOAL') or Decimal('0.00')
+        adm = grupos_despesa.get('ADMINISTRATIVA') or Decimal('0.00')
+        mkt = grupos_despesa.get('MARKETING') or Decimal('0.00')
+        fin_outras = grupos_despesa.get('FINANCEIRA') or Decimal('0.00')
         
-        # 4. Preparar Snapshot para Auditoria
+        # 3. Cascata DRE
+        # Receita Bruta -> (-) Impostos = Receita Líquida
+        receita_liquida = faturamento_bruto - impostos
+
+        # Receita Líquida -> (-) Custos = Lucro Bruto
+        lucro_bruto = receita_liquida - custos
+
+        # Lucro Bruto -> (-) Despesas Operacionais = Resultado Operacional
+        despesas_op = pessoal + adm + mkt
+        resultado_operacional = lucro_bruto - despesas_op
+
+        # Resultado Operacional -> (-) Despesas Financeiras = Lucro Líquido
+        despesas_financeiras = fin_outras + total_taxas_cartao
+        lucro_liquido = resultado_operacional - despesas_financeiras
+
+        # Snapshot Auditoria
         snapshot = {
             "vendas_brutas_api": [
                 {
@@ -135,15 +180,37 @@ class ProcessadorFechamento:
                     "bandeira": item.bandeira
                 } for item in dados_vendas_api
             ],
-            "calculo_receita": {k: float(v) for k, v in calculo_receita.items()},
+            "calculo_receita": {k: float(v) for k, v in vendas.items()},
+            "dre": {
+                "faturamento_bruto": float(faturamento_bruto),
+                "impostos": float(impostos),
+                "receita_liquida": float(receita_liquida),
+                "custos": float(custos),
+                "lucro_bruto": float(lucro_bruto),
+                "despesas_op": float(despesas_op),
+                "resultado_operacional": float(resultado_operacional),
+                "despesas_financeiras": float(despesas_financeiras),
+                "lucro_liquido": float(lucro_liquido),
+            },
             "data_processamento": str(date.today())
         }
         
-        return ResultadoFechamentoDTO(
-            faturamento_bruto=calculo_receita['total_bruto'],
-            total_taxas=calculo_receita['total_taxas'],
-            receita_liquida=calculo_receita['receita_liquida'],
-            despesas_totais=total_despesas,
-            resultado_final=resultado_operacional,
+        resultado_dto = ResultadoFechamentoDTO(
+            faturamento_bruto=faturamento_bruto,
+            total_dinheiro=vendas['total_dinheiro'],
+            total_cartao=vendas['total_cartao'],
+            total_pix=vendas['total_pix'],
+            impostos=impostos,
+            receita_liquida=receita_liquida,
+            custos_produtos=custos,
+            lucro_bruto=lucro_bruto,
+            despesas_operacionais=despesas_op,
+            resultado_operacional=resultado_operacional,
+            total_taxas=total_taxas_cartao,
+            despesas_financeiras=despesas_financeiras,
+            lucro_liquido=lucro_liquido,
             snapshot_dados=snapshot
         )
+
+        print("DEBUG DRE FINAL (ResultadoFechamentoDTO):", resultado_dto)
+        return resultado_dto

@@ -6,7 +6,7 @@ import re
 
 class VendasClientSQL:
     """
-    Cliente SQL otimizado para ler dados do banco legado (vendas_db).
+    Cliente SQL otimizado para ler dados do banco legado (vendas).
     Nome da tabela identificada: vendas_venda
     """
 
@@ -24,14 +24,16 @@ class VendasClientSQL:
         if 'DEBITO' in tipo or 'DÉBITO' in tipo:
             return 'DEBITO'
         
-        # Mapeia 'CREDITO' explícito ou o genérico 'CARTAO' / 'CARTÃO'
-        # Assumimos que se está escrito apenas 'CARTAO', trataremos como Crédito
-        # para garantir o cálculo de taxas (geralmente mais altas que débito).
-        if 'CREDITO' in tipo or 'CRÉDITO' in tipo or 'CARTAO' in tipo or 'CARTÃO' in tipo:
+        if 'CREDITO' in tipo or 'CRÉDITO' in tipo:
             if parcelas > 1:
                 return 'CREDITO_PARCELADO'
             return 'CREDITO_AVISTA'
             
+        # Cartão genérico mapeado para NÃO IDENTIFICADO para evitar distorção nas taxas (0%)
+        # até conciliação manual.
+        if 'CARTAO' in tipo or 'CARTÃO' in tipo:
+            return 'CARTAO_NAO_IDENTIFICADO'
+
         if 'PIX' in tipo:
             return 'PIX'
             
@@ -42,25 +44,29 @@ class VendasClientSQL:
 
     def get_faturamento_por_loja(self, loja_id: int, mes: int, ano: int) -> List[FaturamentoItemDTO]:
         
-        # SQL Otimizado para vendas_venda
-        # REMOVIDO: v.parcelas (coluna não existe no banco legado restaurado)
+        # SQL Otimizado para vendas_venda: Pagamentos Múltiplos (Caixa-based)
         query = """
             WITH vendas_validas AS (
-                SELECT v.id
+                SELECT v.id, v.valor_troco
                 FROM vendas_venda v
+                INNER JOIN vendas_caixadiario c ON v.caixa_id = c.id
                 LEFT JOIN vendas_estorno e ON v.id = e.venda_id
                 WHERE v.loja_id = %s
-                  AND EXTRACT(MONTH FROM v.data_venda) = %s
-                  AND EXTRACT(YEAR FROM v.data_venda) = %s
+                  AND EXTRACT(MONTH FROM c.data) = %s
+                  AND EXTRACT(YEAR FROM c.data) = %s
                   AND v.ignorar_faturamento = FALSE
                   AND e.id IS NULL
             ),
             transacoes_unificadas AS (
-                -- Pagamento 1
+                -- Pagamento 1: Abatendo troco se for DINHEIRO, ou abatendo na primeira forma válida.
+                -- Para bater R$ 44.918,55 exatos (valor_total - troco), subtraímos o troco da forma de pagamento DINHEIRO.
                 SELECT 
                     v.forma_pagamento as forma,
                     COALESCE(v.subtipo_pagamento_1, 'GERAL') as bandeira,
-                    v.valor_pagamento_1 as valor
+                    CASE
+                        WHEN v.forma_pagamento = 'DINHEIRO' THEN (v.valor_pagamento_1 - COALESCE(v.valor_troco, 0))
+                        ELSE v.valor_pagamento_1
+                    END as valor
                 FROM vendas_venda v
                 JOIN vendas_validas vv ON v.id = vv.id
                 WHERE v.valor_pagamento_1 > 0
@@ -87,7 +93,7 @@ class VendasClientSQL:
         resultado_dtos = []
         
         try:
-            with connections['vendas_db'].cursor() as cursor:
+            with connections['vendas'].cursor() as cursor:
                 cursor.execute(query, [loja_id, mes, ano])
                 rows = cursor.fetchall()
                 
@@ -116,7 +122,7 @@ class VendasClientSQL:
                     print(f"DEBUG SQL: Raw='{tipo_raw}' -> Mapeado='{tipo_mapeado}' | Valor={valor}")
 
         except Exception as e:
-            print(f"Erro ao consultar banco vendas_db: {e}")
+            print(f"Erro ao consultar banco vendas: {e}")
             raise e
 
         return resultado_dtos

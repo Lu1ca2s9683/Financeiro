@@ -77,35 +77,57 @@ export default function DashboardPage() {
              <AssistantMessage message={resumo.mensagem_assistente} />
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <KpiCard title="Faturamento Bruto" value={dados.faturamento_bruto} icon={DollarSign} trend="neutral" delay="delay-0" />
-            <KpiCard title="Taxas de Cartão" value={dados.total_taxas} icon={Layers} trend="down" isExpense delay="delay-100" />
-            <KpiCard title="Despesas Operacionais" value={dados.total_despesas} icon={TrendingDown} trend="down" isExpense delay="delay-200" />
-            <KpiCard title="Resultado Operacional" value={dados.resultado_operacional} icon={TrendingUp} trend="up" highlight delay="delay-300" />
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <KpiCard title="Faturamento Bruto" value={dados.faturamento_bruto ?? 0} icon={DollarSign} trend="neutral" delay="delay-0" />
+            <KpiCard title="Dinheiro" value={dados.total_dinheiro ?? 0} icon={DollarSign} trend="neutral" delay="delay-100" />
+            <KpiCard title="Cartão" value={dados.total_cartao ?? 0} icon={Layers} trend="neutral" delay="delay-200" />
+            <KpiCard title="Pix" value={dados.total_pix ?? 0} icon={RefreshCw} trend="neutral" delay="delay-300" />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-enter delay-300">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-enter delay-300 mt-8">
 
-            {/* Coluna Principal: Composição */}
+            {/* Coluna Principal: DRE (Demonstrativo de Resultados) */}
             <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200/60 shadow-sm p-8 hover:shadow-md transition-shadow duration-300">
-              <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
-                <div className="w-1 h-6 bg-indigo-500 rounded-full"></div>
-                Composição do Resultado
+              <h3 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+                <div className="w-1.5 h-6 bg-indigo-500 rounded-full"></div>
+                Demonstrativo de Resultados (DRE)
               </h3>
               
-              <div className="space-y-6">
-                <ResultRow label="Faturamento Bruto" value={dados.faturamento_bruto} isBold />
+              <div className="space-y-4">
+                <ResultRow label="Receita Bruta" value={dados.faturamento_bruto ?? 0} isBold highlightColor="text-indigo-900" />
                 
-                <div className="pl-4 border-l-2 border-slate-100 space-y-3">
-                  <ResultRow label="(-) Taxas Administrativas" value={dados.total_taxas} isNegative />
-                  <ResultRow label="(=) Receita Líquida" value={dados.receita_liquida} isBold />
-                  <ResultRow label="(-) Despesas Operacionais" value={dados.total_despesas} isNegative />
+                <div className="pl-4 border-l-2 border-slate-100 space-y-2">
+                  <ResultRow label="(-) Deduções e Impostos" value={dados.impostos} isNegative />
                 </div>
 
-                <div className="pt-4 border-t border-slate-100">
-                  <div className="flex justify-between items-center p-4 bg-emerald-50/50 rounded-xl border border-emerald-100/50">
-                    <span className="font-bold text-emerald-900">Resultado Final</span>
-                    <span className="font-mono text-2xl font-bold text-emerald-600">{fmt(dados.resultado_operacional)}</span>
+                <div className="border-t border-slate-100 pt-2">
+                  <ResultRow label="(=) Receita Líquida" value={dados.receita_liquida} isBold highlightColor="text-indigo-800" />
+                </div>
+
+                <div className="pl-4 border-l-2 border-slate-100 space-y-2">
+                  <ResultRow label="(-) Custos de Produtos/Serviços" value={dados.custos_produtos} isNegative />
+                </div>
+
+                <div className="border-t border-slate-100 pt-2">
+                  <ResultRow label="(=) Lucro Bruto" value={dados.lucro_bruto} isBold highlightColor="text-indigo-700" />
+                </div>
+
+                <div className="pl-4 border-l-2 border-slate-100 space-y-2">
+                  <ResultRow label="(-) Despesas Operacionais (Pessoal, Adm, Mkt)" value={dados.despesas_operacionais} isNegative />
+                </div>
+
+                <div className="border-t border-slate-100 pt-2">
+                  <ResultRow label="(=) Resultado Operacional (EBITDA)" value={dados.resultado_operacional} isBold highlightColor="text-indigo-600" />
+                </div>
+
+                <div className="pl-4 border-l-2 border-slate-100 space-y-2">
+                  <ResultRow label="(-) Despesas Financeiras (Taxas, Juros)" value={dados.despesas_financeiras} isNegative />
+                </div>
+
+                <div className="pt-6 mt-4 border-t-2 border-slate-200">
+                  <div className="flex justify-between items-center p-5 bg-emerald-50 rounded-xl border border-emerald-200">
+                    <span className="font-bold text-emerald-900 text-lg uppercase tracking-wider">Lucro Líquido</span>
+                    <span className="font-mono text-3xl font-bold text-emerald-600">{fmt(dados.lucro_liquido)}</span>
                   </div>
                 </div>
               </div>
@@ -183,15 +205,17 @@ function KpiCard({ title, value, icon: Icon, isExpense, highlight, delay }: any)
   );
 }
 
-function ResultRow({ label, value, isNegative, isBold }: any) {
+function ResultRow({ label, value, isNegative, isBold, highlightColor }: any) {
   const fmt = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+  const color = highlightColor || (isBold ? 'text-slate-900' : 'text-slate-900');
+
   return (
-    <div className="flex justify-between items-center group">
-      <span className={`${isBold ? 'text-slate-900 font-semibold' : 'text-slate-500 group-hover:text-slate-700'} transition-colors`}>
+    <div className={`flex justify-between items-center group ${isBold ? 'py-1' : ''}`}>
+      <span className={`${isBold ? `${highlightColor || 'text-slate-900'} font-bold` : 'text-slate-500 group-hover:text-slate-700'} transition-colors text-sm sm:text-base`}>
         {label}
       </span>
-      <span className={`font-mono ${isNegative ? 'text-rose-600' : 'text-slate-900'} ${isBold ? 'font-bold text-lg' : ''}`}>
-        {fmt(value)}
+      <span className={`font-mono ${isNegative ? 'text-rose-600' : color} ${isBold ? 'font-bold text-lg' : 'text-sm'}`}>
+        {isNegative && value > 0 ? `(${fmt(value)})` : fmt(value)}
       </span>
     </div>
   )
