@@ -24,19 +24,19 @@ export default function CategoriasPage() {
   }, []);
 
   return (
-    <main className="p-8 space-y-6 animate-enter">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link href="/configuracoes" className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+    <main className="p-4 sm:p-8 space-y-6 animate-enter">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3 sm:gap-4 w-full sm:w-auto">
+          <Link href="/configuracoes" className="p-2 hover:bg-slate-100 rounded-lg transition-colors shrink-0">
             <ArrowLeft size={20} className="text-slate-500" />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Categorias</h1>
-            <p className="text-slate-500">Gestão do plano de contas</p>
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Categorias</h1>
+            <p className="text-slate-500 text-sm">Gestão do plano de contas</p>
           </div>
         </div>
         <button
-          className="bg-indigo-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-indigo-700 transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full sm:w-auto bg-indigo-600 text-white px-4 py-3 sm:py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-indigo-700 transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed font-medium text-sm sm:text-base shrink-0"
           disabled={loading || !localStorage.getItem('financeiro_token')}
           onClick={async () => {
             try {
@@ -58,11 +58,11 @@ export default function CategoriasPage() {
         </button>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-x-auto w-full">
         {loading ? (
           <div className="p-8 text-center text-slate-500">Carregando...</div>
         ) : (
-          <table className="w-full text-left text-sm">
+          <table className="w-full text-left text-sm min-w-[500px]">
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase text-xs font-semibold">
               <tr>
                 <th className="px-6 py-4">ID</th>
