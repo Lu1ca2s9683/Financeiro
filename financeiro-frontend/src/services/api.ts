@@ -9,6 +9,7 @@ console.log('🔗 API_BASE_URL configurada:', API_BASE_URL); // Debug no console
 export interface Categoria {
   id: number;
   nome: string;
+  grupo_contabil: string;
   ativa: boolean;
 }
 
@@ -65,10 +66,18 @@ export interface Fechamento {
   mes: number;
   ano: number;
   faturamento_bruto: number;
-  total_taxas: number;
+  total_dinheiro: number;
+  total_cartao: number;
+  total_pix: number;
+  impostos: number;
   receita_liquida: number;
-  total_despesas: number;
+  custos_produtos: number;
+  lucro_bruto: number;
+  despesas_operacionais: number;
   resultado_operacional: number;
+  total_taxas: number;
+  despesas_financeiras: number;
+  lucro_liquido: number;
   status: string;
 }
 
@@ -162,21 +171,21 @@ export const api = {
     return res.json();
   },
 
-  createCategoria: async (nome: string) => {
+  createCategoria: async (nome: string, grupo_contabil: string = 'ADMINISTRATIVA') => {
     const res = await fetch(`${API_BASE_URL}/categorias/`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ nome, ativa: true })
+      body: JSON.stringify({ nome, grupo_contabil, ativa: true })
     });
     if (!res.ok) throw new Error('Erro ao criar categoria');
     return res.json();
   },
 
-  updateCategoria: async (id: number, nome: string) => {
+  updateCategoria: async (id: number, nome: string, grupo_contabil: string = 'ADMINISTRATIVA') => {
     const res = await fetch(`${API_BASE_URL}/categorias/${id}`, {
       method: 'PUT',
       headers: getHeaders(),
-      body: JSON.stringify({ nome, ativa: true })
+      body: JSON.stringify({ nome, grupo_contabil, ativa: true })
     });
     if (!res.ok) throw new Error('Erro ao atualizar categoria');
     return res.json();

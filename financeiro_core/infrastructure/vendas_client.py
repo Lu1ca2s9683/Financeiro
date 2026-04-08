@@ -44,13 +44,10 @@ class VendasClientSQL:
 
     def get_faturamento_por_loja(self, loja_id: int, mes: int, ano: int) -> List[FaturamentoItemDTO]:
         
-        # SQL Otimizado para vendas_venda (Caixa-based, Valor Total - Troco)
+        # SQL Otimizado para vendas_venda: Pagamentos Múltiplos (Caixa-based)
         query = """
             WITH vendas_validas AS (
-                SELECT
-                    v.forma_pagamento as forma,
-                    COALESCE(v.subtipo_pagamento_1, 'GERAL') as bandeira,
-                    (v.valor_total - COALESCE(v.valor_troco, 0)) as valor_liquido
+                SELECT v.id, v.valor_troco
                 FROM vendas_venda v
                 INNER JOIN vendas_caixadiario c ON v.caixa_id = c.id
                 LEFT JOIN vendas_estorno e ON v.id = e.venda_id
@@ -59,12 +56,37 @@ class VendasClientSQL:
                   AND EXTRACT(YEAR FROM c.data) = %s
                   AND v.ignorar_faturamento = FALSE
                   AND e.id IS NULL
+            ),
+            transacoes_unificadas AS (
+                -- Pagamento 1: Abatendo troco se for DINHEIRO, ou abatendo na primeira forma válida.
+                -- Para bater R$ 44.918,55 exatos (valor_total - troco), subtraímos o troco da forma de pagamento DINHEIRO.
+                SELECT
+                    v.forma_pagamento as forma,
+                    COALESCE(v.subtipo_pagamento_1, 'GERAL') as bandeira,
+                    CASE
+                        WHEN v.forma_pagamento = 'DINHEIRO' THEN (v.valor_pagamento_1 - COALESCE(v.valor_troco, 0))
+                        ELSE v.valor_pagamento_1
+                    END as valor
+                FROM vendas_venda v
+                JOIN vendas_validas vv ON v.id = vv.id
+                WHERE v.valor_pagamento_1 > 0
+
+                UNION ALL
+
+                -- Pagamento 2
+                SELECT
+                    v.forma_pagamento_2 as forma,
+                    COALESCE(v.subtipo_pagamento_2, 'GERAL') as bandeira,
+                    v.valor_pagamento_2 as valor
+                FROM vendas_venda v
+                JOIN vendas_validas vv ON v.id = vv.id
+                WHERE v.valor_pagamento_2 > 0
             )
             SELECT 
                 forma,
                 bandeira,
-                SUM(valor_liquido) as total
-            FROM vendas_validas
+                SUM(valor) as total
+            FROM transacoes_unificadas
             GROUP BY forma, bandeira
         """
         

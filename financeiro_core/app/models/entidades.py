@@ -8,12 +8,22 @@ class CategoriaDespesa(models.Model):
     """
     Categorização de despesas para relatórios financeiros.
     """
+    GRUPO_CONTABIL_CHOICES = [
+        ('IMPOSTOS', 'Impostos (Deduções da Receita)'),
+        ('CUSTOS', 'Custos de Serviço/Produto'),
+        ('PESSOAL', 'Despesas com Pessoal'),
+        ('ADMINISTRATIVA', 'Despesas Administrativas'),
+        ('MARKETING', 'Vendas e Marketing'),
+        ('FINANCEIRA', 'Despesas Financeiras (Taxas, Juros)'),
+    ]
+
     nome = models.CharField(max_length=100)
     codigo_contabil = models.CharField(max_length=20, blank=True, null=True)
+    grupo_contabil = models.CharField(max_length=50, choices=GRUPO_CONTABIL_CHOICES, default='ADMINISTRATIVA')
     ativa = models.BooleanField(default=True)
 
     def __str__(self):
-        return self.nome
+        return f"{self.nome} ({self.grupo_contabil})"
 
 class Fornecedor(models.Model):
     """Entidade recebedora de pagamentos."""
