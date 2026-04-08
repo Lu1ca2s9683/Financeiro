@@ -5,6 +5,7 @@ from decimal import Decimal
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 from datetime import date
+import traceback
 
 # Importações dos modelos e serviços
 from ..models.entidades import (
@@ -537,27 +538,32 @@ def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
             }
         )
 
-    # Dicionário exato esperado pelo Schema FechamentoOut
-    resposta_dre = {
-        "loja_id_externo": target_loja,
-        "mes": mes,
-        "ano": ano,
-        "receita_bruta": resultado.faturamento_bruto or Decimal('0.00'),
-        "total_dinheiro": resultado.total_dinheiro or Decimal('0.00'),
-        "total_cartao": resultado.total_cartao or Decimal('0.00'),
-        "total_pix": resultado.total_pix or Decimal('0.00'),
-        "impostos": resultado.impostos or Decimal('0.00'),
-        "receita_liquida": resultado.receita_liquida or Decimal('0.00'),
-        "custos_produtos": resultado.custos_produtos or Decimal('0.00'),
-        "lucro_bruto": resultado.lucro_bruto or Decimal('0.00'),
-        "despesas_operacionais": resultado.despesas_operacionais or Decimal('0.00'),
-        "resultado_operacional": resultado.resultado_operacional or Decimal('0.00'),
-        "total_taxas": resultado.total_taxas or Decimal('0.00'),
-        "despesas_financeiras": resultado.despesas_financeiras or Decimal('0.00'),
-        "lucro_liquido": resultado.lucro_liquido or Decimal('0.00'),
-        "status": fechamento.status
-    }
+    try:
+        # Dicionário exato esperado pelo Schema FechamentoOut
+        resposta_dre = {
+            "loja_id_externo": target_loja,
+            "mes": mes,
+            "ano": ano,
+            "receita_bruta": resultado.faturamento_bruto or Decimal('0.00'),
+            "total_dinheiro": resultado.total_dinheiro or Decimal('0.00'),
+            "total_cartao": resultado.total_cartao or Decimal('0.00'),
+            "total_pix": resultado.total_pix or Decimal('0.00'),
+            "impostos": resultado.impostos or Decimal('0.00'),
+            "receita_liquida": resultado.receita_liquida or Decimal('0.00'),
+            "custos_produtos": resultado.custos_produtos or Decimal('0.00'),
+            "lucro_bruto": resultado.lucro_bruto or Decimal('0.00'),
+            "despesas_operacionais": resultado.despesas_operacionais or Decimal('0.00'),
+            "resultado_operacional": resultado.resultado_operacional or Decimal('0.00'),
+            "total_taxas": resultado.total_taxas or Decimal('0.00'),
+            "despesas_financeiras": resultado.despesas_financeiras or Decimal('0.00'),
+            "lucro_liquido": resultado.lucro_liquido or Decimal('0.00'),
+            "status": fechamento.status
+        }
 
-    print("DEBUG DRE FINAL:", resposta_dre)
-    
-    return resposta_dre
+        print("DEBUG DRE FINAL:", resposta_dre)
+        return resposta_dre
+
+    except Exception as e:
+        print("ERRO FATAL AO RETORNAR DRE:")
+        traceback.print_exc()
+        raise HttpError(500, str(e))
