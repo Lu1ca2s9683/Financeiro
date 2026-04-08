@@ -147,12 +147,13 @@ class ProcessadorFechamento:
         # 2. Obter Despesas por Grupo Contábil
         grupos_despesa = self.repo_despesas.agrupar_despesas_por_grupo_contabil(loja_id, mes, ano)
 
-        impostos = grupos_despesa.get('IMPOSTOS', Decimal('0.00'))
-        custos = grupos_despesa.get('CUSTOS', Decimal('0.00'))
-        pessoal = grupos_despesa.get('PESSOAL', Decimal('0.00'))
-        adm = grupos_despesa.get('ADMINISTRATIVA', Decimal('0.00'))
-        mkt = grupos_despesa.get('MARKETING', Decimal('0.00'))
-        fin_outras = grupos_despesa.get('FINANCEIRA', Decimal('0.00'))
+        # Fallback seguro para Decimal('0.00') caso o banco retorne None para algum grupo
+        impostos = grupos_despesa.get('IMPOSTOS') or Decimal('0.00')
+        custos = grupos_despesa.get('CUSTOS') or Decimal('0.00')
+        pessoal = grupos_despesa.get('PESSOAL') or Decimal('0.00')
+        adm = grupos_despesa.get('ADMINISTRATIVA') or Decimal('0.00')
+        mkt = grupos_despesa.get('MARKETING') or Decimal('0.00')
+        fin_outras = grupos_despesa.get('FINANCEIRA') or Decimal('0.00')
 
         # 3. Cascata DRE
         # Receita Bruta -> (-) Impostos = Receita Líquida
@@ -164,11 +165,11 @@ class ProcessadorFechamento:
         # Lucro Bruto -> (-) Despesas Operacionais = Resultado Operacional
         despesas_op = pessoal + adm + mkt
         resultado_operacional = lucro_bruto - despesas_op
-        
+
         # Resultado Operacional -> (-) Despesas Financeiras = Lucro Líquido
         despesas_financeiras = fin_outras + total_taxas_cartao
         lucro_liquido = resultado_operacional - despesas_financeiras
-        
+
         # Snapshot Auditoria
         snapshot = {
             "vendas_brutas_api": [
@@ -193,7 +194,7 @@ class ProcessadorFechamento:
             "data_processamento": str(date.today())
         }
         
-        return ResultadoFechamentoDTO(
+        resultado_dto = ResultadoFechamentoDTO(
             faturamento_bruto=faturamento_bruto,
             total_dinheiro=vendas['total_dinheiro'],
             total_cartao=vendas['total_cartao'],
@@ -209,3 +210,6 @@ class ProcessadorFechamento:
             lucro_liquido=lucro_liquido,
             snapshot_dados=snapshot
         )
+
+        print("DEBUG DRE FINAL (ResultadoFechamentoDTO):", resultado_dto)
+        return resultado_dto
