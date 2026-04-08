@@ -489,9 +489,16 @@ def excluir_despesa(request, despesa_id: int):
 # --- FECHAMENTO ---
 # Rota movida para uma View Nativa do Django (config/urls.py) para debug do Erro 500
 
-import json
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
+@router.post("/fechamento/calcular/{loja_id}/{mes}/{ano}", response=FechamentoOut)
+def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
+    """Calcula e persiste o fechamento mensal."""
+    active_loja_id = request.active_loja_id
+    if not active_loja_id:
+        raise HttpError(400, "Nenhuma loja ativa no contexto")
+
+    # Assegura que o parâmetro de loja_id no endpoint corresponde à loja ativa ou ignora o parâmetro
+    # e força a operação para a loja ativa do token, blindando a integridade.
+    target_loja = active_loja_id
 
 @csrf_exempt
 def fechamento_calcular_nativo(request, loja_id: int, mes: int, ano: int):
@@ -575,11 +582,53 @@ def fechamento_calcular_nativo(request, loja_id: int, mes: int, ano: int):
             if hasattr(value, 'quantize'): # Checa se é Decimal
                 resposta_dre[key] = float(value)
 
-        print("DEBUG DRE NATIVO SUCESSO:", resposta_dre)
-        return JsonResponse(resposta_dre)
+    # 2. Executa Domínio (Cálculos)
+    processador = ProcessadorFechamento(repo_taxas, repo_despesas)
+    dados_vendas = vendas_client.get_faturamento_por_loja(target_loja, mes, ano)
+    resultado = processador.executar_fechamento(target_loja, mes, ano, dados_vendas)
+
+    # 3. Persiste Resultado
+    with transaction.atomic():
+        fechamento, created = FechamentoMensal.objects.update_or_create(
+            loja_id_externo=target_loja,
+            mes=mes,
+            ano=ano,
+            defaults={
+                'faturamento_bruto': resultado.faturamento_bruto,
+                'total_taxas': resultado.total_taxas,
+                'receita_liquida': resultado.receita_liquida,
+                'total_despesas': resultado.impostos + resultado.custos_produtos + resultado.despesas_operacionais + resultado.despesas_financeiras,
+                'resultado_operacional': resultado.resultado_operacional,
+                'status': 'ABERTO',
+                'dados_auditoria_snapshot': resultado.snapshot_dados
+            }
+        )
+
+    try:
+        # Dicionário exato esperado pelo Schema FechamentoOut
+        resposta_dre = {
+            "loja_id_externo": target_loja,
+            "mes": mes,
+            "ano": ano,
+            "receita_bruta": resultado.faturamento_bruto or Decimal('0.00'),
+            "total_dinheiro": resultado.total_dinheiro or Decimal('0.00'),
+            "total_cartao": resultado.total_cartao or Decimal('0.00'),
+            "total_pix": resultado.total_pix or Decimal('0.00'),
+            "impostos": resultado.impostos or Decimal('0.00'),
+            "receita_liquida": resultado.receita_liquida or Decimal('0.00'),
+            "custos_produtos": resultado.custos_produtos or Decimal('0.00'),
+            "lucro_bruto": resultado.lucro_bruto or Decimal('0.00'),
+            "despesas_operacionais": resultado.despesas_operacionais or Decimal('0.00'),
+            "resultado_operacional": resultado.resultado_operacional or Decimal('0.00'),
+            "total_taxas": resultado.total_taxas or Decimal('0.00'),
+            "despesas_financeiras": resultado.despesas_financeiras or Decimal('0.00'),
+            "lucro_liquido": resultado.lucro_liquido or Decimal('0.00'),
+            "status": fechamento.status
+        }
+
+        return resposta_dre
 
     except Exception as e:
-        import traceback
-        print("ERRO NATIVO CAPTURADO:")
+        print("ERRO FATAL AO RETORNAR DRE:")
         traceback.print_exc()
-        return JsonResponse({"error": str(e), "traceback": traceback.format_exc()}, status=500)
+        raise HttpError(500, str(e))

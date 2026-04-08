@@ -106,9 +106,10 @@ class CalculadoraFinanceira:
         receita_liquida = total_bruto - total_taxas
         
         # Sumariza subtotais de pagamento
-        total_dinheiro = sum(i.valor_bruto for i in itens_venda if i.tipo_pagamento == 'DINHEIRO')
-        total_cartao = sum(i.valor_bruto for i in itens_venda if 'CREDITO' in i.tipo_pagamento or 'DEBITO' in i.tipo_pagamento or 'CARTAO' in i.tipo_pagamento)
-        total_pix = sum(i.valor_bruto for i in itens_venda if i.tipo_pagamento == 'PIX')
+        # O sum() padrão retorna 0 (int) para listas vazias, o que quebra o .quantize() do Decimal
+        total_dinheiro = sum((i.valor_bruto for i in itens_venda if i.tipo_pagamento == 'DINHEIRO'), Decimal('0.00'))
+        total_cartao = sum((i.valor_bruto for i in itens_venda if 'CREDITO' in i.tipo_pagamento or 'DEBITO' in i.tipo_pagamento or 'CARTAO' in i.tipo_pagamento), Decimal('0.00'))
+        total_pix = sum((i.valor_bruto for i in itens_venda if i.tipo_pagamento == 'PIX'), Decimal('0.00'))
 
         return {
             "total_bruto": total_bruto,
@@ -146,7 +147,7 @@ class ProcessadorFechamento:
 
         # 2. Obter Despesas por Grupo Contábil
         grupos_despesa = self.repo_despesas.agrupar_despesas_por_grupo_contabil(loja_id, mes, ano)
-
+        
         # Fallback seguro para Decimal('0.00') caso o banco retorne None para algum grupo
         impostos = grupos_despesa.get('IMPOSTOS') or Decimal('0.00')
         custos = grupos_despesa.get('CUSTOS') or Decimal('0.00')
@@ -154,7 +155,7 @@ class ProcessadorFechamento:
         adm = grupos_despesa.get('ADMINISTRATIVA') or Decimal('0.00')
         mkt = grupos_despesa.get('MARKETING') or Decimal('0.00')
         fin_outras = grupos_despesa.get('FINANCEIRA') or Decimal('0.00')
-
+        
         # 3. Cascata DRE
         # Receita Bruta -> (-) Impostos = Receita Líquida
         receita_liquida = faturamento_bruto - impostos
