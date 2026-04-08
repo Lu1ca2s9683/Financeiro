@@ -60,7 +60,7 @@ class VendasClientSQL:
             transacoes_unificadas AS (
                 -- Pagamento 1: Abatendo troco se for DINHEIRO, ou abatendo na primeira forma válida.
                 -- Para bater R$ 44.918,55 exatos (valor_total - troco), subtraímos o troco da forma de pagamento DINHEIRO.
-                SELECT
+                SELECT 
                     v.forma_pagamento as forma,
                     COALESCE(v.subtipo_pagamento_1, 'GERAL') as bandeira,
                     CASE

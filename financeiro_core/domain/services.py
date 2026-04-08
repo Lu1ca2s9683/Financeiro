@@ -147,7 +147,7 @@ class ProcessadorFechamento:
 
         # 2. Obter Despesas por Grupo Contábil
         grupos_despesa = self.repo_despesas.agrupar_despesas_por_grupo_contabil(loja_id, mes, ano)
-
+        
         # Fallback seguro para Decimal('0.00') caso o banco retorne None para algum grupo
         impostos = grupos_despesa.get('IMPOSTOS') or Decimal('0.00')
         custos = grupos_despesa.get('CUSTOS') or Decimal('0.00')
@@ -155,7 +155,7 @@ class ProcessadorFechamento:
         adm = grupos_despesa.get('ADMINISTRATIVA') or Decimal('0.00')
         mkt = grupos_despesa.get('MARKETING') or Decimal('0.00')
         fin_outras = grupos_despesa.get('FINANCEIRA') or Decimal('0.00')
-
+        
         # 3. Cascata DRE
         # Receita Bruta -> (-) Impostos = Receita Líquida
         receita_liquida = faturamento_bruto - impostos
