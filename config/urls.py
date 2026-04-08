@@ -7,7 +7,6 @@ from ninja import NinjaAPI
 
 # Importa o roteador definido no módulo financeiro
 from financeiro_core.app.api.endpoints import router as financeiro_router
-from financeiro_core.app.api.endpoints import fechamento_calcular_nativo
 from financeiro_core.app.api.auth import router as auth_router
 
 # Instancia a API do Django Ninja
@@ -27,9 +26,6 @@ urlpatterns = [
     # Rota para o painel administrativo do Django
     path('admin/', admin.site.urls),
     
-    # Rota nativa de debug interceptando a rota de fechamento ANTES do NinjaAPI
-    path('api/financeiro/fechamento/calcular/<int:loja_id>/<int:mes>/<int:ano>', fechamento_calcular_nativo),
-
     # Rota base para a API principal (inclui a documentação automática em /api/docs)
     path('api/', api.urls),
 ]

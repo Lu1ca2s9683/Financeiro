@@ -106,9 +106,10 @@ class CalculadoraFinanceira:
         receita_liquida = total_bruto - total_taxas
         
         # Sumariza subtotais de pagamento
-        total_dinheiro = sum(i.valor_bruto for i in itens_venda if i.tipo_pagamento == 'DINHEIRO')
-        total_cartao = sum(i.valor_bruto for i in itens_venda if 'CREDITO' in i.tipo_pagamento or 'DEBITO' in i.tipo_pagamento or 'CARTAO' in i.tipo_pagamento)
-        total_pix = sum(i.valor_bruto for i in itens_venda if i.tipo_pagamento == 'PIX')
+        # O sum() padrão retorna 0 (int) para listas vazias, o que quebra o .quantize() do Decimal
+        total_dinheiro = sum((i.valor_bruto for i in itens_venda if i.tipo_pagamento == 'DINHEIRO'), Decimal('0.00'))
+        total_cartao = sum((i.valor_bruto for i in itens_venda if 'CREDITO' in i.tipo_pagamento or 'DEBITO' in i.tipo_pagamento or 'CARTAO' in i.tipo_pagamento), Decimal('0.00'))
+        total_pix = sum((i.valor_bruto for i in itens_venda if i.tipo_pagamento == 'PIX'), Decimal('0.00'))
 
         return {
             "total_bruto": total_bruto,
