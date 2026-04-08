@@ -488,7 +488,9 @@ def excluir_despesa(request, despesa_id: int):
 
 # --- FECHAMENTO ---
 
-@router.post("/fechamento/calcular/{loja_id}/{mes}/{ano}", response=FechamentoOut)
+import json
+
+@router.post("/fechamento/calcular/{loja_id}/{mes}/{ano}")
 def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
     """Calcula e persiste o fechamento mensal."""
     active_loja_id = request.active_loja_id
@@ -560,7 +562,7 @@ def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
             "status": fechamento.status
         }
 
-        print("DEBUG DRE FINAL:", resposta_dre)
+        print("FORCED DEBUG DRE:", json.dumps(resposta_dre, default=str))
         return resposta_dre
 
     except Exception as e:
