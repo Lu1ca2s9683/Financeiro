@@ -74,7 +74,7 @@ class VendasClientSQL:
                 UNION ALL
 
                 -- Pagamento 2
-                SELECT 
+                SELECT
                     v.forma_pagamento_2 as forma,
                     COALESCE(v.subtipo_pagamento_2, 'GERAL') as bandeira,
                     v.valor_pagamento_2 as valor

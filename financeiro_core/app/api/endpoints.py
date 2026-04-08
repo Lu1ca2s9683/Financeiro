@@ -487,6 +487,7 @@ def excluir_despesa(request, despesa_id: int):
     return {"success": True, "message": f"Despesa {despesa_id} excluída."}
 
 # --- FECHAMENTO ---
+# Rota movida para uma View Nativa do Django (config/urls.py) para debug do Erro 500
 
 @router.post("/fechamento/calcular/{loja_id}/{mes}/{ano}", response=FechamentoOut)
 def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
@@ -499,15 +500,87 @@ def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
     # e força a operação para a loja ativa do token, blindando a integridade.
     target_loja = active_loja_id
 
-    # 1. Instancia dependências (SQL Real ou Mock)
+@csrf_exempt
+def fechamento_calcular_nativo(request, loja_id: int, mes: int, ano: int):
     try:
-        vendas_client = VendasClientSQL() 
-    except Exception as e:
-        print(f"Erro conexão SQL: {e}")
-        vendas_client = VendasAPIClientMock()
+        # Extrai token nativamente do header Authorization
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return JsonResponse({"detail": "Token ausente ou inválido"}, status=401)
 
-    repo_taxas = DjangoRepositorioTaxas()
-    repo_despesas = DjangoRepositorioDespesas()
+        token = auth_header.split(" ")[1]
+
+        # Chama a classe AuthBearer que definimos
+        auth_bearer = AuthBearer()
+        user = auth_bearer.authenticate(request, token)
+
+        if not user:
+            return JsonResponse({"detail": "Não autorizado"}, status=401)
+
+        active_loja_id = getattr(request, 'active_loja_id', None)
+
+        if not active_loja_id:
+            return JsonResponse({"detail": "Nenhuma loja ativa no contexto"}, status=400)
+
+        target_loja = active_loja_id
+
+        # 1. Instancia dependências (SQL Real ou Mock)
+        try:
+            vendas_client = VendasClientSQL()
+        except Exception as e:
+            print(f"Erro conexão SQL: {e}")
+            vendas_client = VendasAPIClientMock()
+
+        repo_taxas = DjangoRepositorioTaxas()
+        repo_despesas = DjangoRepositorioDespesas()
+
+        # 2. Executa Domínio (Cálculos)
+        processador = ProcessadorFechamento(repo_taxas, repo_despesas)
+        dados_vendas = vendas_client.get_faturamento_por_loja(target_loja, mes, ano)
+        resultado = processador.executar_fechamento(target_loja, mes, ano, dados_vendas)
+
+        # 3. Persiste Resultado
+        with transaction.atomic():
+            fechamento, created = FechamentoMensal.objects.update_or_create(
+                loja_id_externo=target_loja,
+                mes=mes,
+                ano=ano,
+                defaults={
+                    'faturamento_bruto': resultado.faturamento_bruto,
+                    'total_taxas': resultado.total_taxas,
+                    'receita_liquida': resultado.receita_liquida,
+                    'total_despesas': resultado.impostos + resultado.custos_produtos + resultado.despesas_operacionais + resultado.despesas_financeiras,
+                    'resultado_operacional': resultado.resultado_operacional,
+                    'status': 'ABERTO',
+                    'dados_auditoria_snapshot': resultado.snapshot_dados
+                }
+            )
+
+        # Dicionário exato esperado pelo Schema FechamentoOut
+        resposta_dre = {
+            "loja_id_externo": target_loja,
+            "mes": mes,
+            "ano": ano,
+            "receita_bruta": resultado.faturamento_bruto or Decimal('0.00'),
+            "total_dinheiro": resultado.total_dinheiro or Decimal('0.00'),
+            "total_cartao": resultado.total_cartao or Decimal('0.00'),
+            "total_pix": resultado.total_pix or Decimal('0.00'),
+            "impostos": resultado.impostos or Decimal('0.00'),
+            "receita_liquida": resultado.receita_liquida or Decimal('0.00'),
+            "custos_produtos": resultado.custos_produtos or Decimal('0.00'),
+            "lucro_bruto": resultado.lucro_bruto or Decimal('0.00'),
+            "despesas_operacionais": resultado.despesas_operacionais or Decimal('0.00'),
+            "resultado_operacional": resultado.resultado_operacional or Decimal('0.00'),
+            "total_taxas": resultado.total_taxas or Decimal('0.00'),
+            "despesas_financeiras": resultado.despesas_financeiras or Decimal('0.00'),
+            "lucro_liquido": resultado.lucro_liquido or Decimal('0.00'),
+            "status": fechamento.status
+        }
+
+        # Converta os Decimals para String ou Float para evitar erro no JSON nativo
+        for key, value in resposta_dre.items():
+            if hasattr(value, 'quantize'): # Checa se é Decimal
+                resposta_dre[key] = float(value)
 
     # 2. Executa Domínio (Cálculos)
     processador = ProcessadorFechamento(repo_taxas, repo_despesas)
