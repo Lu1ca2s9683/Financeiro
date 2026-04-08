@@ -179,19 +179,20 @@ class FechamentoOut(Schema):
     loja_id: int = Field(..., alias="loja_id_externo") 
     mes: int
     ano: int
-    faturamento_bruto: Decimal
-    total_dinheiro: Decimal
-    total_cartao: Decimal
-    total_pix: Decimal
 
-    impostos: Decimal
+    receita_bruta: Decimal
+    total_dinheiro: Decimal = Decimal('0.00')
+    total_cartao: Decimal = Decimal('0.00')
+    total_pix: Decimal = Decimal('0.00')
+
+    impostos: Decimal = Decimal('0.00')
     receita_liquida: Decimal
-    custos_produtos: Decimal
+    custos_produtos: Decimal = Decimal('0.00')
     lucro_bruto: Decimal
-    despesas_operacionais: Decimal
+    despesas_operacionais: Decimal = Decimal('0.00')
     resultado_operacional: Decimal
-    total_taxas: Decimal
-    despesas_financeiras: Decimal
+    total_taxas: Decimal = Decimal('0.00')
+    despesas_financeiras: Decimal = Decimal('0.00')
     lucro_liquido: Decimal
 
     status: str
@@ -536,16 +537,27 @@ def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
             }
         )
 
-    # Hack para retornar as variáveis virtuais no Schema sem precisar migrar o model base FechamentoMensal
-    # Já que o Pydantic vai tentar ler os atributos do objeto.
-    fechamento.total_dinheiro = resultado.total_dinheiro
-    fechamento.total_cartao = resultado.total_cartao
-    fechamento.total_pix = resultado.total_pix
-    fechamento.impostos = resultado.impostos
-    fechamento.custos_produtos = resultado.custos_produtos
-    fechamento.lucro_bruto = resultado.lucro_bruto
-    fechamento.despesas_operacionais = resultado.despesas_operacionais
-    fechamento.despesas_financeiras = resultado.despesas_financeiras
-    fechamento.lucro_liquido = resultado.lucro_liquido
+    # Dicionário exato esperado pelo Schema FechamentoOut
+    resposta_dre = {
+        "loja_id_externo": target_loja,
+        "mes": mes,
+        "ano": ano,
+        "receita_bruta": resultado.faturamento_bruto or Decimal('0.00'),
+        "total_dinheiro": resultado.total_dinheiro or Decimal('0.00'),
+        "total_cartao": resultado.total_cartao or Decimal('0.00'),
+        "total_pix": resultado.total_pix or Decimal('0.00'),
+        "impostos": resultado.impostos or Decimal('0.00'),
+        "receita_liquida": resultado.receita_liquida or Decimal('0.00'),
+        "custos_produtos": resultado.custos_produtos or Decimal('0.00'),
+        "lucro_bruto": resultado.lucro_bruto or Decimal('0.00'),
+        "despesas_operacionais": resultado.despesas_operacionais or Decimal('0.00'),
+        "resultado_operacional": resultado.resultado_operacional or Decimal('0.00'),
+        "total_taxas": resultado.total_taxas or Decimal('0.00'),
+        "despesas_financeiras": resultado.despesas_financeiras or Decimal('0.00'),
+        "lucro_liquido": resultado.lucro_liquido or Decimal('0.00'),
+        "status": fechamento.status
+    }
+
+    print("DEBUG DRE FINAL:", resposta_dre)
     
-    return fechamento
+    return resposta_dre
