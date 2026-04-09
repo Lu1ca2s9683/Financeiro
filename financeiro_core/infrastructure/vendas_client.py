@@ -47,7 +47,7 @@ class VendasClientSQL:
         # SQL Otimizado para vendas_venda: Pagamentos Múltiplos (Caixa-based)
         query = """
             WITH vendas_validas AS (
-                SELECT v.id, v.valor_troco
+                SELECT v.id
                 FROM vendas_venda v
                 INNER JOIN vendas_caixadiario c ON v.caixa_id = c.id
                 LEFT JOIN vendas_estorno e ON v.id = e.venda_id
@@ -58,15 +58,11 @@ class VendasClientSQL:
                   AND e.id IS NULL
             ),
             transacoes_unificadas AS (
-                -- Pagamento 1: Abatendo troco se for DINHEIRO, ou abatendo na primeira forma válida.
-                -- Para bater R$ 44.918,55 exatos (valor_total - troco), subtraímos o troco da forma de pagamento DINHEIRO.
+                -- Pagamento 1
                 SELECT 
                     v.forma_pagamento as forma,
                     COALESCE(v.subtipo_pagamento_1, 'GERAL') as bandeira,
-                    CASE
-                        WHEN v.forma_pagamento = 'DINHEIRO' THEN (v.valor_pagamento_1 - COALESCE(v.valor_troco, 0))
-                        ELSE v.valor_pagamento_1
-                    END as valor
+                    v.valor_pagamento_1 as valor
                 FROM vendas_venda v
                 JOIN vendas_validas vv ON v.id = vv.id
                 WHERE v.valor_pagamento_1 > 0

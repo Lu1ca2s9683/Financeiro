@@ -88,49 +88,51 @@ export function DespesaForm({ initialData, onSuccess, onCancel }: DespesaFormPro
         <input
           required
           type="text"
-          className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
+          className="w-full bg-white text-slate-900 border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 placeholder-slate-400"
           placeholder="Ex: Aluguel Dezembro"
           value={form.descricao}
           onChange={e => setForm({...form, descricao: e.target.value})}
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Valor (R$)</label>
           <input
             required
             type="number"
             step="0.01"
-            className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full bg-white text-slate-900 border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 placeholder-slate-400"
             placeholder="0.00"
             value={form.valor}
             onChange={e => setForm({...form, valor: e.target.value})}
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Categoria</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Categoria Contábil</label>
           <select
             required
-            className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+            className="w-full bg-white text-slate-900 border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
             value={form.categoria_id}
             onChange={e => setForm({...form, categoria_id: e.target.value})}
           >
-            <option value="">Selecione...</option>
+            <option value="">Selecione a categoria...</option>
             {categorias.map(cat => (
-              <option key={cat.id} value={cat.id}>{cat.nome}</option>
+              <option key={cat.id} value={cat.id}>
+                {cat.nome} ({cat.grupo_contabil})
+              </option>
             ))}
           </select>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Competência (Mês/Ref)</label>
           <input
             required
             type="date"
-            className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full bg-white text-slate-900 border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
             value={form.data_competencia}
             onChange={e => setForm({...form, data_competencia: e.target.value})}
           />
@@ -140,7 +142,7 @@ export function DespesaForm({ initialData, onSuccess, onCancel }: DespesaFormPro
           <input
             required
             type="date"
-            className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full bg-white text-slate-900 border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
             value={form.data_vencimento}
             onChange={e => setForm({...form, data_vencimento: e.target.value})}
           />
