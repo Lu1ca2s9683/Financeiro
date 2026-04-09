@@ -108,7 +108,7 @@ class ContaPagar(models.Model):
     conta_origem = models.ForeignKey(ContaBancaria, on_delete=models.PROTECT, null=True, blank=True)
     
     criado_em = models.DateTimeField(auto_now_add=True)
-    criado_por = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    criado_por_id = models.IntegerField(null=True, blank=True, help_text="ID do usuário no banco legado (vendas)")
 
     class Meta:
         verbose_name = "Conta a Pagar"

@@ -430,7 +430,7 @@ def criar_despesa(request, payload: DespesaIn):
             valor_bruto=payload.valor,
             data_competencia=payload.data_competencia,
             data_vencimento=payload.data_vencimento,
-            criado_por=request.user if request.user.is_authenticated else None
+            criado_por_id=getattr(request, 'user_id', None)
         )
         return despesa
 
