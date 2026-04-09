@@ -401,32 +401,44 @@ def atualizar_status_despesa(request, despesa_id: int, payload: StatusUpdate):
 @router.post("/despesas/", response=DespesaOut)
 def criar_despesa(request, payload: DespesaIn):
     """Cria uma nova conta a pagar."""
-    active_loja_id = request.active_loja_id
-    if not active_loja_id:
-        raise HttpError(400, "Nenhuma loja ativa no contexto")
+    try:
+        print("DEBUG PAYLOAD DE ENTRADA:", payload.dict())
 
-    if not CategoriaDespesa.objects.filter(id=payload.categoria_id).exists():
-        raise HttpError(404, f"Categoria de Despesa com ID {payload.categoria_id} não encontrada.")
-    
-    categoria = CategoriaDespesa.objects.get(id=payload.categoria_id)
-    
-    fornecedor = None
-    if payload.fornecedor_id:
-        if not Fornecedor.objects.filter(id=payload.fornecedor_id).exists():
-            raise HttpError(404, f"Fornecedor com ID {payload.fornecedor_id} não encontrado.")
-        fornecedor = Fornecedor.objects.get(id=payload.fornecedor_id)
+        # Pega a loja do token de segurança que já configuramos
+        loja_id_do_token = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
+        print("DEBUG LOJA DO TOKEN:", loja_id_do_token)
 
-    despesa = ContaPagar.objects.create(
-        descricao=payload.descricao,
-        loja_id_externo=active_loja_id,
-        categoria=categoria,
-        fornecedor=fornecedor,
-        valor_bruto=payload.valor,
-        data_competencia=payload.data_competencia,
-        data_vencimento=payload.data_vencimento,
-        criado_por=request.user if request.user.is_authenticated else None
-    )
-    return despesa
+        if not loja_id_do_token:
+            raise HttpError(400, "Nenhuma loja ativa no contexto")
+
+        if not CategoriaDespesa.objects.filter(id=payload.categoria_id).exists():
+            raise HttpError(404, f"Categoria de Despesa com ID {payload.categoria_id} não encontrada.")
+
+        categoria = CategoriaDespesa.objects.get(id=payload.categoria_id)
+
+        fornecedor = None
+        if payload.fornecedor_id:
+            if not Fornecedor.objects.filter(id=payload.fornecedor_id).exists():
+                raise HttpError(404, f"Fornecedor com ID {payload.fornecedor_id} não encontrado.")
+            fornecedor = Fornecedor.objects.get(id=payload.fornecedor_id)
+
+        despesa = ContaPagar.objects.create(
+            descricao=payload.descricao,
+            loja_id_externo=loja_id_do_token,
+            categoria=categoria,
+            fornecedor=fornecedor,
+            valor_bruto=payload.valor,
+            data_competencia=payload.data_competencia,
+            data_vencimento=payload.data_vencimento,
+            criado_por=request.user if request.user.is_authenticated else None
+        )
+        return despesa
+
+    except Exception as e:
+        print("======= ERRO AO SALVAR DESPESA =======")
+        traceback.print_exc()
+        print("======================================")
+        raise HttpError(500, str(e))
 
 @router.put("/despesas/{despesa_id}", response=DespesaOut)
 def editar_despesa(request, despesa_id: int, payload: DespesaIn):
