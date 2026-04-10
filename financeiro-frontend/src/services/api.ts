@@ -86,6 +86,18 @@ export interface AuthResponse {
   token: string;
 }
 
+export interface ContaBancaria {
+  id: number;
+  nome: string;
+  tipo: string;
+  banco_codigo: string;
+  agencia: string;
+  conta: string;
+  saldo_inicial: number;
+  saldo_atual: number;
+  ativo: boolean;
+}
+
 export interface User {
   id: number;
   nome: string;
@@ -162,6 +174,36 @@ export const api = {
     }
 
     return data;
+  },
+
+  // --- Tesouraria (Contas e Transferências) ---
+  getContasBancarias: async (): Promise<ContaBancaria[]> => {
+    const res = await fetch(`${API_BASE_URL}/contas/`, { headers: getHeaders() });
+    if (!res.ok) throw new Error('Falha ao buscar contas bancárias');
+    return res.json();
+  },
+
+  createContaBancaria: async (data: any): Promise<ContaBancaria> => {
+    const res = await fetch(`${API_BASE_URL}/contas/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error('Falha ao criar conta bancária');
+    return res.json();
+  },
+
+  createTransferencia: async (data: any) => {
+    const res = await fetch(`${API_BASE_URL}/contas/transferencia`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Erro ao realizar transferência');
+    }
+    return res.json();
   },
 
   // --- Categorias ---
