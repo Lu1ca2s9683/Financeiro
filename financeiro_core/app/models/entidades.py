@@ -36,11 +36,19 @@ class Fornecedor(models.Model):
 # --- Entidades Principais ---
 
 class ContaBancaria(models.Model):
+    TIPO_CONTA_CHOICES = [
+        ('CAIXA_FISICO', 'Caixa Físico'),
+        ('CONTA_CORRENTE', 'Conta Corrente'),
+        ('POUPANCA', 'Poupança'),
+    ]
+
     nome = models.CharField(max_length=100, help_text="Ex: Bradesco Loja Centro")
+    tipo = models.CharField(max_length=20, choices=TIPO_CONTA_CHOICES, default='CONTA_CORRENTE')
     banco_codigo = models.CharField(max_length=10, blank=True)
     agencia = models.CharField(max_length=20, blank=True)
     conta = models.CharField(max_length=30, blank=True)
     loja_id_externo = models.IntegerField(verbose_name="ID da Loja (Sistema Vendas)", db_index=True)
+    saldo_inicial = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('0.00'))
     saldo_atual = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal('0.00'))
     ativo = models.BooleanField(default=True)
 
@@ -49,7 +57,52 @@ class ContaBancaria(models.Model):
         verbose_name_plural = "Contas Bancárias"
 
     def __str__(self):
-        return f"{self.nome} (Loja {self.loja_id_externo})"
+        return f"{self.nome} ({self.get_tipo_display()}) - Loja {self.loja_id_externo}"
+
+class MovimentacaoCaixa(models.Model):
+    TIPO_MOVIMENTACAO_CHOICES = [
+        ('ENTRADA', 'Entrada de Recursos'),
+        ('SAIDA', 'Saída de Recursos'),
+        ('TRANSFERENCIA_SAIDA', 'Transferência - Origem'),
+        ('TRANSFERENCIA_ENTRADA', 'Transferência - Destino'),
+    ]
+
+    conta = models.ForeignKey(ContaBancaria, on_delete=models.CASCADE, related_name='movimentacoes')
+    tipo_movimentacao = models.CharField(max_length=25, choices=TIPO_MOVIMENTACAO_CHOICES)
+    descricao = models.CharField(max_length=255, help_text="Motivo ou descrição do lançamento")
+    valor = models.DecimalField(max_digits=15, decimal_places=2)
+    data_ocorrencia = models.DateTimeField(help_text="Data e hora reais da movimentação")
+
+    categoria = models.ForeignKey(CategoriaDespesa, on_delete=models.SET_NULL, null=True, blank=True, related_name='movimentacoes_caixa')
+    despesa_vinculada = models.ForeignKey('ContaPagar', on_delete=models.SET_NULL, null=True, blank=True, related_name='pagamentos_caixa')
+
+    loja_id_externo = models.IntegerField(db_index=True)
+    criado_por_id = models.IntegerField(null=True, blank=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Movimentação de Caixa"
+        verbose_name_plural = "Movimentações de Caixa"
+
+    def save(self, *args, **kwargs):
+        # Controle para não duplicar valores se for um update (simples)
+        is_new = self.pk is None
+
+        super().save(*args, **kwargs)
+
+        # O gatilho atualiza o saldo apenas na inserção inicial para evitar corrupção em edições complexas
+        if is_new:
+            if self.tipo_movimentacao in ['ENTRADA', 'TRANSFERENCIA_ENTRADA']:
+                self.conta.saldo_atual += self.valor
+            elif self.tipo_movimentacao in ['SAIDA', 'TRANSFERENCIA_SAIDA']:
+                self.conta.saldo_atual -= self.valor
+
+            self.conta.save(update_fields=['saldo_atual'])
+
+    def __str__(self):
+        sinal = "+" if self.tipo_movimentacao in ['ENTRADA', 'TRANSFERENCIA_ENTRADA'] else "-"
+        return f"{self.data_ocorrencia.strftime('%d/%m/%Y')} | {self.conta.nome}: {sinal} R$ {self.valor}"
+
 
 class PerfilTaxaCartao(models.Model):
     nome = models.CharField(max_length=100, help_text="Ex: Contrato Stone 2024")
