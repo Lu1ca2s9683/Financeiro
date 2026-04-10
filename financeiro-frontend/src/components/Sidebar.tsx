@@ -2,10 +2,11 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, FileText, Settings, PieChart, DollarSign, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, FileText, Settings, PieChart, DollarSign, ChevronRight, Wallet } from 'lucide-react';
 
 const menuItems = [
   { icon: LayoutDashboard, label: 'Visão Geral', href: '/' },
+  { icon: Wallet, label: 'Tesouraria', href: '/tesouraria' },
   { icon: FileText, label: 'Contas a Pagar', href: '/despesas' },
   { icon: PieChart, label: 'Relatórios', href: '/relatorios' }, 
   { icon: Settings, label: 'Configurações', href: '/configuracoes' },

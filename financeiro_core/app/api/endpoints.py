@@ -183,6 +183,13 @@ class ContaBancariaOut(Schema):
     saldo_atual: Decimal
     ativo: bool
 
+class TransferenciaIn(Schema):
+    conta_origem_id: int
+    conta_destino_id: int
+    valor: Decimal
+    data_ocorrencia: date
+    descricao: str
+
 class DashboardResumoOut(Schema):
     percentual_pago: float
     percentual_atrasado: float
@@ -346,6 +353,50 @@ def criar_conta(request, payload: ContaBancariaIn):
         loja_id_externo=active_loja_id
     )
     return nova_conta
+
+@router.post("/contas/transferencia", auth=AuthBearer())
+def registrar_transferencia(request, payload: TransferenciaIn):
+    """Realiza uma transferência segura entre contas (Sangria/Depósito)."""
+    active_loja_id = request.active_loja_id
+    if not active_loja_id:
+        raise HttpError(400, "Nenhuma loja ativa no contexto")
+
+    if payload.conta_origem_id == payload.conta_destino_id:
+        raise HttpError(400, "A conta de origem e destino não podem ser as mesmas.")
+
+    conta_origem = get_object_or_404(ContaBancaria, id=payload.conta_origem_id, loja_id_externo=active_loja_id, ativo=True)
+    conta_destino = get_object_or_404(ContaBancaria, id=payload.conta_destino_id, loja_id_externo=active_loja_id, ativo=True)
+
+    if payload.valor <= 0:
+        raise HttpError(400, "O valor da transferência deve ser maior que zero.")
+
+    user_id = getattr(request, 'user_id', None)
+
+    # Transação atômica para garantir a integridade dos saldos em ambas as contas
+    with transaction.atomic():
+        # Cria a SAÍDA na origem
+        MovimentacaoCaixa.objects.create(
+            conta=conta_origem,
+            tipo_movimentacao='TRANSFERENCIA_SAIDA',
+            descricao=payload.descricao,
+            valor=payload.valor,
+            data_ocorrencia=payload.data_ocorrencia,
+            loja_id_externo=active_loja_id,
+            criado_por_id=user_id
+        )
+
+        # Cria a ENTRADA no destino
+        MovimentacaoCaixa.objects.create(
+            conta=conta_destino,
+            tipo_movimentacao='TRANSFERENCIA_ENTRADA',
+            descricao=payload.descricao,
+            valor=payload.valor,
+            data_ocorrencia=payload.data_ocorrencia,
+            loja_id_externo=active_loja_id,
+            criado_por_id=user_id
+        )
+
+    return {"success": True, "message": "Transferência realizada com sucesso."}
 
 # --- CATEGORIAS (CRUD) ---
 
