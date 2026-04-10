@@ -14,7 +14,9 @@ from ..models.entidades import (
     FechamentoMensal,
     TaxaMaquininha, 
     PerfilTaxaCartao,
-    Fornecedor
+    Fornecedor,
+    ContaBancaria,
+    MovimentacaoCaixa
 )
 from ...infrastructure.vendas_client import VendasClientSQL, VendasAPIClientMock
 from ...domain.services import ProcessadorFechamento, FaturamentoItemDTO
@@ -161,6 +163,26 @@ class DespesaDetailOut(DespesaOut):
 class StatusUpdate(Schema):
     status: str
 
+# --- Schemas de Conta Bancária ---
+class ContaBancariaIn(Schema):
+    nome: str
+    tipo: str
+    banco_codigo: Optional[str] = ""
+    agencia: Optional[str] = ""
+    conta: Optional[str] = ""
+    saldo_inicial: Decimal = Decimal('0.00')
+
+class ContaBancariaOut(Schema):
+    id: int
+    nome: str
+    tipo: str
+    banco_codigo: str
+    agencia: str
+    conta: str
+    saldo_inicial: Decimal
+    saldo_atual: Decimal
+    ativo: bool
+
 class DashboardResumoOut(Schema):
     percentual_pago: float
     percentual_atrasado: float
@@ -294,6 +316,36 @@ def obter_resumo_dashboard(request, loja_id: int, mes: int, ano: int):
         "saude_financeira": saude,
         "mensagem_assistente": msg
     }
+
+# --- CONTAS BANCÁRIAS (CRUD TESOURARIA) ---
+
+@router.get("/contas/", response=List[ContaBancariaOut], auth=AuthBearer())
+def listar_contas(request):
+    """Lista contas bancárias e cofres da loja ativa."""
+    active_loja_id = request.active_loja_id
+    if not active_loja_id:
+        raise HttpError(400, "Nenhuma loja ativa no contexto")
+
+    return ContaBancaria.objects.filter(loja_id_externo=active_loja_id, ativo=True)
+
+@router.post("/contas/", response=ContaBancariaOut, auth=AuthBearer())
+def criar_conta(request, payload: ContaBancariaIn):
+    """Cria uma nova conta ou caixa físico para a loja ativa."""
+    active_loja_id = request.active_loja_id
+    if not active_loja_id:
+        raise HttpError(400, "Nenhuma loja ativa no contexto")
+
+    nova_conta = ContaBancaria.objects.create(
+        nome=payload.nome,
+        tipo=payload.tipo,
+        banco_codigo=payload.banco_codigo,
+        agencia=payload.agencia,
+        conta=payload.conta,
+        saldo_inicial=payload.saldo_inicial,
+        saldo_atual=payload.saldo_inicial, # Saldo atual começa igual ao inicial
+        loja_id_externo=active_loja_id
+    )
+    return nova_conta
 
 # --- CATEGORIAS (CRUD) ---
 
