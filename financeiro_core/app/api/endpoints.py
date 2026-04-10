@@ -225,6 +225,10 @@ class FechamentoOut(Schema):
     despesas_financeiras: Decimal = Decimal('0.00')
     lucro_liquido: Decimal
 
+    total_sangrias: Decimal = Decimal('0.00')
+    total_envelopes: Decimal = Decimal('0.00')
+    detalhamento_sangrias: List[dict] = []
+
     status: str
 
     class Config:
@@ -627,9 +631,14 @@ def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
     # 2. Executa Domínio (Cálculos)
     processador = ProcessadorFechamento(repo_taxas, repo_despesas)
     dados_vendas = vendas_client.get_faturamento_por_loja(target_loja, mes, ano)
-    resultado = processador.executar_fechamento(target_loja, mes, ano, dados_vendas)
+    dados_sangrias = vendas_client.get_sangrias_por_loja(target_loja, mes, ano)
+    total_envelopes = vendas_client.get_envelopes_por_loja(target_loja, mes, ano)
 
-    # 3. Persiste Resultado
+    resultado = processador.executar_fechamento(
+        target_loja, mes, ano, dados_vendas, dados_sangrias, total_envelopes
+    )
+
+    # 3. Persiste Resultado e Automação da Tesouraria
     with transaction.atomic():
         fechamento, created = FechamentoMensal.objects.update_or_create(
             loja_id_externo=target_loja,
@@ -645,6 +654,61 @@ def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
                 'dados_auditoria_snapshot': resultado.snapshot_dados
             }
         )
+
+        # Automação da Tesouraria: Ocorre apenas uma vez (quando o mês é fechado ou calculado pela 1ª vez via este endpoint POST)
+        if created:
+            # O dinheiro físico disponível no caixa (que será deduzido automaticamente pelas transferências pendentes geradas a seguir)
+            dinheiro_real_injetado = resultado.total_dinheiro - resultado.total_sangrias
+
+            # Se houve entrada de dinheiro no mês ou se existem transferências a realizar
+            if dinheiro_real_injetado != Decimal('0.00') or resultado.total_envelopes > 0:
+                user_id = getattr(request, 'user_id', None)
+
+                # 1. Encontra a Conta "Caixa Físico" para a loja, ou cria uma genérica
+                conta_caixa, _ = ContaBancaria.objects.get_or_create(
+                    loja_id_externo=target_loja,
+                    tipo='CAIXA_FISICO',
+                    defaults={
+                        'nome': 'Caixa Físico Automático',
+                        'saldo_inicial': Decimal('0.00'),
+                        'saldo_atual': Decimal('0.00')
+                    }
+                )
+
+                # 2. Injeta o dinheiro real que sobrou na gaveta no fim do mês
+                if dinheiro_real_injetado > 0:
+                    MovimentacaoCaixa.objects.create(
+                        conta=conta_caixa,
+                        tipo_movimentacao='ENTRADA',
+                        descricao=f'Fechamento Mensal Automático - Dinheiro Restante no Caixa ({mes}/{ano})',
+                        valor=dinheiro_real_injetado,
+                        data_ocorrencia=date.today(),
+                        loja_id_externo=target_loja,
+                        criado_por_id=user_id
+                    )
+                elif dinheiro_real_injetado < 0:
+                    # Raro, mas pode acontecer se a sangria for maior que a entrada de dinheiro (erro de caixa ou adiantamento)
+                    MovimentacaoCaixa.objects.create(
+                        conta=conta_caixa,
+                        tipo_movimentacao='SAIDA',
+                        descricao=f'Ajuste Automático de Fechamento Mensal - Déficit de Caixa ({mes}/{ano})',
+                        valor=abs(dinheiro_real_injetado),
+                        data_ocorrencia=date.today(),
+                        loja_id_externo=target_loja,
+                        criado_por_id=user_id
+                    )
+
+                # 3. Registra as Transferências Pendentes dos Envelopes
+                if resultado.total_envelopes > 0:
+                    MovimentacaoCaixa.objects.create(
+                        conta=conta_caixa,
+                        tipo_movimentacao='TRANSFERENCIA_PENDENTE',
+                        descricao=f'Envelopes/Malotes Pendentes de Conciliação ({mes}/{ano})',
+                        valor=resultado.total_envelopes,
+                        data_ocorrencia=date.today(),
+                        loja_id_externo=target_loja,
+                        criado_por_id=user_id
+                    )
 
     # Dicionário exato esperado pelo Schema FechamentoOut
     resposta_dre = {
@@ -664,6 +728,9 @@ def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
         "total_taxas": resultado.total_taxas or Decimal('0.00'),
         "despesas_financeiras": resultado.despesas_financeiras or Decimal('0.00'),
         "lucro_liquido": resultado.lucro_liquido or Decimal('0.00'),
+        "total_sangrias": resultado.total_sangrias or Decimal('0.00'),
+        "total_envelopes": resultado.total_envelopes or Decimal('0.00'),
+        "detalhamento_sangrias": resultado.detalhamento_sangrias,
         "status": fechamento.status
     }
 

@@ -40,6 +40,10 @@ class ResultadoFechamentoDTO:
     despesas_financeiras: Decimal
     lucro_liquido: Decimal
 
+    total_sangrias: Decimal
+    total_envelopes: Decimal
+    detalhamento_sangrias: List[dict]
+
     snapshot_dados: Dict[str, Any] # Dicionário para auditoria
 
 # --- Interfaces (Adapters) ---
@@ -134,7 +138,9 @@ class ProcessadorFechamento:
         loja_id: int, 
         mes: int, 
         ano: int, 
-        dados_vendas_api: List[FaturamentoItemDTO]
+        dados_vendas_api: List[FaturamentoItemDTO],
+        dados_sangrias: dict,
+        total_envelopes: Decimal
     ) -> ResultadoFechamentoDTO:
         
         # 1. Calcular Vendas Base e Taxas de Cartão
@@ -163,8 +169,12 @@ class ProcessadorFechamento:
         # Receita Líquida -> (-) Custos = Lucro Bruto
         lucro_bruto = receita_liquida - custos
 
+        # Sangrias são tratadas como Despesas Operacionais no DRE
+        total_sangrias = dados_sangrias.get("total", Decimal('0.00'))
+        detalhamento_sangrias = dados_sangrias.get("detalhes", [])
+
         # Lucro Bruto -> (-) Despesas Operacionais = Resultado Operacional
-        despesas_op = pessoal + adm + mkt
+        despesas_op = pessoal + adm + mkt + total_sangrias
         resultado_operacional = lucro_bruto - despesas_op
 
         # Resultado Operacional -> (-) Despesas Financeiras = Lucro Líquido
@@ -191,6 +201,8 @@ class ProcessadorFechamento:
                 "resultado_operacional": float(resultado_operacional),
                 "despesas_financeiras": float(despesas_financeiras),
                 "lucro_liquido": float(lucro_liquido),
+                "sangrias": float(total_sangrias),
+                "envelopes": float(total_envelopes),
             },
             "data_processamento": str(date.today())
         }
@@ -209,6 +221,9 @@ class ProcessadorFechamento:
             total_taxas=total_taxas_cartao,
             despesas_financeiras=despesas_financeiras,
             lucro_liquido=lucro_liquido,
+            total_sangrias=total_sangrias,
+            detalhamento_sangrias=detalhamento_sangrias,
+            total_envelopes=total_envelopes,
             snapshot_dados=snapshot
         )
 

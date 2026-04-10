@@ -123,6 +123,46 @@ class VendasClientSQL:
 
         return resultado_dtos
 
+    def get_sangrias_por_loja(self, loja_id: int, mes: int, ano: int) -> dict:
+        query = """
+            SELECT
+                SUM(s.valor) as total,
+                json_agg(json_build_object('valor', s.valor, 'motivo', s.motivo)) as detalhes
+            FROM vendas_sangria s
+            INNER JOIN vendas_caixadiario c ON s.caixa_id = c.id
+            WHERE c.loja_id = %s
+              AND EXTRACT(MONTH FROM c.data) = %s
+              AND EXTRACT(YEAR FROM c.data) = %s
+        """
+        try:
+            with connections['vendas'].cursor() as cursor:
+                cursor.execute(query, [loja_id, mes, ano])
+                row = cursor.fetchone()
+                total = Decimal(row[0] or '0.00')
+                detalhes = row[1] or []
+                return {"total": total, "detalhes": detalhes}
+        except Exception as e:
+            print(f"Erro ao consultar sangrias no banco vendas: {e}")
+            return {"total": Decimal('0.00'), "detalhes": []}
+
+    def get_envelopes_por_loja(self, loja_id: int, mes: int, ano: int) -> Decimal:
+        query = """
+            SELECT SUM(ev.valor) as total
+            FROM vendas_envelope ev
+            INNER JOIN vendas_caixadiario c ON ev.caixa_id = c.id
+            WHERE c.loja_id = %s
+              AND EXTRACT(MONTH FROM c.data) = %s
+              AND EXTRACT(YEAR FROM c.data) = %s
+        """
+        try:
+            with connections['vendas'].cursor() as cursor:
+                cursor.execute(query, [loja_id, mes, ano])
+                row = cursor.fetchone()
+                return Decimal(row[0] or '0.00')
+        except Exception as e:
+            print(f"Erro ao consultar envelopes no banco vendas: {e}")
+            return Decimal('0.00')
+
 class VendasAPIClientMock:
     """
     Mock mantido para compatibilidade.

@@ -65,6 +65,7 @@ class MovimentacaoCaixa(models.Model):
         ('SAIDA', 'Saída de Recursos'),
         ('TRANSFERENCIA_SAIDA', 'Transferência - Origem'),
         ('TRANSFERENCIA_ENTRADA', 'Transferência - Destino'),
+        ('TRANSFERENCIA_PENDENTE', 'Transferência - Pendente'),
     ]
 
     conta = models.ForeignKey(ContaBancaria, on_delete=models.CASCADE, related_name='movimentacoes')
@@ -94,7 +95,7 @@ class MovimentacaoCaixa(models.Model):
         if is_new:
             if self.tipo_movimentacao in ['ENTRADA', 'TRANSFERENCIA_ENTRADA']:
                 self.conta.saldo_atual += self.valor
-            elif self.tipo_movimentacao in ['SAIDA', 'TRANSFERENCIA_SAIDA']:
+            elif self.tipo_movimentacao in ['SAIDA', 'TRANSFERENCIA_SAIDA', 'TRANSFERENCIA_PENDENTE']:
                 self.conta.saldo_atual -= self.valor
 
             self.conta.save(update_fields=['saldo_atual'])
