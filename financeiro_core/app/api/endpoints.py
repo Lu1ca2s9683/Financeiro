@@ -329,7 +329,7 @@ def obter_resumo_dashboard(request, loja_id: int, mes: int, ano: int):
 @router.get("/contas/", response=List[ContaBancariaOut], auth=AuthBearer())
 def listar_contas(request):
     """Lista contas bancárias e cofres da loja ativa."""
-    active_loja_id = request.active_loja_id
+    active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
     if not active_loja_id:
         raise HttpError(400, "Nenhuma loja ativa no contexto")
 
@@ -338,7 +338,7 @@ def listar_contas(request):
 @router.post("/contas/", response=ContaBancariaOut, auth=AuthBearer())
 def criar_conta(request, payload: ContaBancariaIn):
     """Cria uma nova conta ou caixa físico para a loja ativa."""
-    active_loja_id = request.active_loja_id
+    active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
     if not active_loja_id:
         raise HttpError(400, "Nenhuma loja ativa no contexto")
 
@@ -357,7 +357,7 @@ def criar_conta(request, payload: ContaBancariaIn):
 @router.post("/contas/transferencia", auth=AuthBearer())
 def registrar_transferencia(request, payload: TransferenciaIn):
     """Realiza uma transferência segura entre contas (Sangria/Depósito)."""
-    active_loja_id = request.active_loja_id
+    active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
     if not active_loja_id:
         raise HttpError(400, "Nenhuma loja ativa no contexto")
 
@@ -452,7 +452,7 @@ def listar_despesas(
     ano: Optional[int] = None
 ):
     """Lista despesas, opcionalmente filtrando por loja e competência."""
-    active_loja_id = request.active_loja_id
+    active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
     if not active_loja_id:
         raise HttpError(400, "Nenhuma loja ativa no contexto")
 
@@ -466,7 +466,7 @@ def listar_despesas(
 @router.get("/despesas/{despesa_id}", response=DespesaDetailOut)
 def obter_despesa(request, despesa_id: int):
     """Retorna detalhes de uma despesa."""
-    active_loja_id = request.active_loja_id
+    active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
     if not active_loja_id:
         raise HttpError(400, "Nenhuma loja ativa no contexto")
 
@@ -476,7 +476,7 @@ def obter_despesa(request, despesa_id: int):
 @router.patch("/despesas/{despesa_id}/status", response=DespesaOut)
 def atualizar_status_despesa(request, despesa_id: int, payload: StatusUpdate):
     """Atualiza o status da despesa, validando fechamento."""
-    active_loja_id = request.active_loja_id
+    active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
     if not active_loja_id:
         raise HttpError(400, "Nenhuma loja ativa no contexto")
 
@@ -546,7 +546,7 @@ def criar_despesa(request, payload: DespesaIn):
 @router.put("/despesas/{despesa_id}", response=DespesaOut)
 def editar_despesa(request, despesa_id: int, payload: DespesaIn):
     """Atualiza uma despesa e recalcula valores."""
-    active_loja_id = request.active_loja_id
+    active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
     if not active_loja_id:
         raise HttpError(400, "Nenhuma loja ativa no contexto")
 
@@ -593,7 +593,7 @@ def editar_despesa(request, despesa_id: int, payload: DespesaIn):
 @router.delete("/despesas/{despesa_id}")
 def excluir_despesa(request, despesa_id: int):
     """Exclui uma despesa."""
-    active_loja_id = request.active_loja_id
+    active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
     if not active_loja_id:
         raise HttpError(400, "Nenhuma loja ativa no contexto")
 
@@ -606,7 +606,7 @@ def excluir_despesa(request, despesa_id: int):
 @router.post("/fechamento/calcular/{loja_id}/{mes}/{ano}", response=FechamentoOut)
 def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
     """Calcula e persiste o fechamento mensal."""
-    active_loja_id = request.active_loja_id
+    active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
     if not active_loja_id:
         raise HttpError(400, "Nenhuma loja ativa no contexto")
 
