@@ -1,0 +1,16 @@
+
+> financeiro-frontend@0.1.0 dev
+> next dev
+
+▲ Next.js 16.1.4 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.0.2:3000
+
+✓ Starting...
+✓ Ready in 1114ms
+○ Compiling /landing ...
+🔗 API_BASE_URL configurada: http://127.0.0.1:8000/api/financeiro
+ GET /landing 200 in 7.7s (compile: 7.3s, render: 446ms)
+ GET /login 200 in 1091ms (compile: 1038ms, render: 54ms)
+ GET /landing 200 in 124ms (compile: 7ms, render: 117ms)
+ GET /login 200 in 33ms (compile: 4ms, render: 29ms)
