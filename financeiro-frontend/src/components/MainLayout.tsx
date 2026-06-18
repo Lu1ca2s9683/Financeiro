@@ -1,87 +1,56 @@
 'use client';
 
 import { useAuth } from '@/contexts/AuthContext';
-import { Sidebar } from './Sidebar';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
+import { FloatingNav } from './FloatingNav';
 import { StoreSelector } from './StoreSelector';
-import { Menu, X } from 'lucide-react';
 
 export function MainLayout({ children }: { children: React.ReactNode }) {
   const { user, loading, token } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
-    if (!loading && !token && pathname !== '/login') {
+    if (!loading && !token && pathname !== '/login' && pathname !== '/landing') {
       router.push('/login');
     }
   }, [loading, token, pathname, router]);
 
-  if (pathname === '/login') {
+  if (pathname === '/login' || pathname === '/landing') {
     return <>{children}</>;
   }
 
   if (loading) {
-    return <div className="flex h-screen items-center justify-center text-slate-400">Carregando...</div>;
+    return (
+      <div className="flex h-screen items-center justify-center text-slate-400 bg-slate-50 dark:bg-slate-950">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+      </div>
+    );
   }
 
   if (!user) return null;
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
-      {/* Mobile Overlay */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 lg:hidden transition-opacity"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
+    <div className="relative min-h-screen bg-slate-50 dark:bg-slate-950 font-sans selection:bg-indigo-500/30">
 
-      {/* Sidebar Wrapper: 
-          No Mobile -> Fica fixo por cima da tela (fixed).
-          No Desktop -> Senta lado-a-lado com o conteúdo (lg:relative), 
-          encolhendo ou crescendo junto com o menu interno. */}
-      <div className={`
-        fixed inset-y-0 left-0 z-50 h-screen shadow-xl
-        transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0
-        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-      `}>
-        <Sidebar onClose={() => setSidebarOpen(false)} />
-      </div>
+      {/* Floating Top Header (Optional, for global actions like StoreSelector) */}
+      <header className="fixed top-0 left-0 right-0 z-40 px-6 py-4 pointer-events-none flex justify-end">
+        <div className="pointer-events-auto bg-apple-glass rounded-2xl shadow-[var(--shadow-apple-soft)] px-3 py-2 flex items-center gap-4 transition-all hover:shadow-[var(--shadow-apple-hover)]">
+          <StoreSelector />
+        </div>
+      </header>
 
-      {/* Main Content Area 
-          Removido o lg:ml-72. Com flex-1, ele automaticamente abraça o 
-          espaço que o menu deixar livre ao retrair. */}
-      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto transition-all duration-300 ease-in-out">
-        {/* Header Mobile & Global */}
-        <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200 px-4 py-3 flex justify-between items-center shadow-sm">
-            <div className="flex items-center gap-3 lg:hidden">
-              <button
-                className="p-2 -ml-2 text-slate-600 hover:bg-slate-100 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-colors"
-                onClick={() => setSidebarOpen(true)}
-                aria-label="Abrir menu"
-              >
-                <Menu size={24} />
-              </button>
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
-                  <span className="text-white font-bold text-sm">FI</span>
-                </div>
-                <span className="font-bold text-slate-800 text-lg hidden sm:block">Financeiro</span>
-              </div>
-            </div>
+      {/* Main Content Area: scrolls freely below the floating nav */}
+      <main className="relative z-10 w-full max-w-[1600px] mx-auto pb-32 pt-20 px-4 sm:px-8 lg:px-12 transition-all duration-500 ease-in-out">
+        {children}
+      </main>
 
-            <div className="flex items-center gap-4 ml-auto">
-              <StoreSelector />
-            </div>
-        </header>
-
-        {/* Content Body */}
-        <main className="flex-1 w-full max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-8">
-          {children}
-        </main>
+      {/* Apple-style Floating Dock Navigation */}
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
+         <div className="pointer-events-auto">
+            <FloatingNav />
+         </div>
       </div>
     </div>
   );
