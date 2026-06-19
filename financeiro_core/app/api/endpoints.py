@@ -580,6 +580,16 @@ def excluir_despesa(request, despesa_id: int):
 
 @router.post("/fechamento/calcular/{loja_id}/{mes}/{ano}", response=FechamentoOut)
 def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
+    """Calcula e persiste o fechamento mensal."""
+    active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
+    if not active_loja_id:
+        raise HttpError(400, "Nenhuma loja ativa no contexto")
+
+    # Assegura que o parâmetro de loja_id no endpoint corresponde à loja ativa ou ignora o parâmetro
+    # e força a operação para a loja ativa do token, blindando a integridade.
+    target_loja = active_loja_id
+
+    # 1. Instancia dependências (SQL Real ou Mock)
     """Calcula e persiste o fechamento mensal, blindado contra quebras silenciosas."""
     try:
         active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
