@@ -39,17 +39,22 @@ export function MainLayout({ children }: { children: React.ReactNode }) {
         />
       )}
 
-      {/* Sidebar (Drawer on mobile, Fixed on desktop) */}
+      {/* Sidebar Wrapper: 
+          No Mobile -> Fica fixo por cima da tela (fixed).
+          No Desktop -> Senta lado-a-lado com o conteúdo (lg:relative), 
+          encolhendo ou crescendo junto com o menu interno. */}
       <div className={`
-        fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 shadow-xl
-        transform transition-transform duration-300 ease-in-out lg:translate-x-0
+        fixed inset-y-0 left-0 z-50 h-screen shadow-xl
+        transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
         <Sidebar onClose={() => setSidebarOpen(false)} />
       </div>
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 lg:ml-72 transition-all duration-300 ease-in-out h-screen overflow-y-auto">
+      {/* Main Content Area 
+          Removido o lg:ml-72. Com flex-1, ele automaticamente abraça o 
+          espaço que o menu deixar livre ao retrair. */}
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto transition-all duration-300 ease-in-out">
         {/* Header Mobile & Global */}
         <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200 px-4 py-3 flex justify-between items-center shadow-sm">
             <div className="flex items-center gap-3 lg:hidden">

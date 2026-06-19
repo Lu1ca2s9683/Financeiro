@@ -200,13 +200,9 @@ class DashboardResumoOut(Schema):
     saude_financeira: str  # 'SAUDAVEL', 'ATENCAO', 'CRITICO'
     mensagem_assistente: str
 
-    # Adicionando os mesmos campos do DRE no resumo do dashboard (opcional, já que o frontend consome de FechamentoOut)
-    # Mas como o prompt pede "Refatore a lógica de getFechamento e getDashboardResumo para classificar as despesas"
-    # vamos injetá-los no DashboardResumoOut se o frontend quiser.
-
 # --- Schemas de Fechamento ---
 class FechamentoOut(Schema):
-    loja_id: int = Field(..., alias="loja_id_externo") 
+    loja_id_externo: int  # Alterado para casar perfeitamente com o retorno e evitar ValidationError
     mes: int
     ano: int
 
@@ -242,11 +238,6 @@ def obter_resumo_dashboard(request, loja_id: int, mes: int, ano: int):
     print(f"DEBUG: Endpoint Dashboard acessado pelo usuário {request.auth}")
     check_permission(request, loja_id)
 
-    # Nota: A classificação de despesas pelo grupo contábil (DRE) agora
-    # é manipulada rigorosamente no getFechamento (`calcular_fechamento`).
-    # O dashboard do frontend consome e exibe a cascata matemática e totais
-    # vindo exclusivamente do endpoint de fechamento (veja page.tsx: dados = api.getFechamento).
-    # O resumo foca no status temporal (vencimentos/saúde) e assistente.
     despesas = ContaPagar.objects.filter(
         loja_id_externo=loja_id,
         data_competencia__month=mes,
@@ -262,13 +253,12 @@ def obter_resumo_dashboard(request, loja_id: int, mes: int, ano: int):
             "total_despesas_mes": 0,
             "despesas_vencendo_semana": 0,
             "despesas_atrasadas": 0,
-            "saude_financeira": "SAUDAVEL", # Sem dívidas é saudável
+            "saude_financeira": "SAUDAVEL",
             "mensagem_assistente": "Nenhuma despesa lançada para este período."
         }
 
     pagas = despesas.filter(status='PAGO').count()
     atrasadas = despesas.filter(status='ATRASADO').count()
-    # Considera também as que venceram e ainda estão como PREVISTO
     hoje = date.today()
     atrasadas_reais = 0
     previstas = 0
@@ -278,12 +268,10 @@ def obter_resumo_dashboard(request, loja_id: int, mes: int, ano: int):
         if d.status == 'PAGO':
             continue
 
-        # Lógica de atraso
         if d.status == 'ATRASADO' or d.data_vencimento < hoje:
             atrasadas_reais += 1
         else:
             previstas += 1
-            # Vencendo na semana (0 a 7 dias)
             dias = (d.data_vencimento - hoje).days
             if 0 <= dias <= 7:
                 vencendo_semana += 1
@@ -292,7 +280,6 @@ def obter_resumo_dashboard(request, loja_id: int, mes: int, ano: int):
     perc_atrasado = (atrasadas_reais / total) * 100
     perc_previsto = (previstas / total) * 100
 
-    # Saúde Financeira
     if perc_pago >= 80:
         saude = "SAUDAVEL"
     elif perc_pago >= 50:
@@ -300,7 +287,6 @@ def obter_resumo_dashboard(request, loja_id: int, mes: int, ano: int):
     else:
         saude = "CRITICO"
 
-    # Assistente Contextual
     msg = ""
     if vencendo_semana > 0:
         msg = f"Atenção: Você tem {vencendo_semana} despesa(s) vencendo nos próximos 7 dias."
@@ -349,7 +335,7 @@ def criar_conta(request, payload: ContaBancariaIn):
         agencia=payload.agencia,
         conta=payload.conta,
         saldo_inicial=payload.saldo_inicial,
-        saldo_atual=payload.saldo_inicial, # Saldo atual começa igual ao inicial
+        saldo_atual=payload.saldo_inicial,
         loja_id_externo=active_loja_id
     )
     return nova_conta
@@ -372,9 +358,7 @@ def registrar_transferencia(request, payload: TransferenciaIn):
 
     user_id = getattr(request, 'user_id', None)
 
-    # Transação atômica para garantir a integridade dos saldos em ambas as contas
     with transaction.atomic():
-        # Cria a SAÍDA na origem
         MovimentacaoCaixa.objects.create(
             conta=conta_origem,
             tipo_movimentacao='TRANSFERENCIA_SAIDA',
@@ -385,7 +369,6 @@ def registrar_transferencia(request, payload: TransferenciaIn):
             criado_por_id=user_id
         )
 
-        # Cria a ENTRADA no destino
         MovimentacaoCaixa.objects.create(
             conta=conta_destino,
             tipo_movimentacao='TRANSFERENCIA_ENTRADA',
@@ -447,7 +430,7 @@ def listar_perfis_taxas(request, loja_id: Optional[int] = None):
 @router.get("/despesas/", response=List[DespesaOut])
 def listar_despesas(
     request, 
-    loja_id: Optional[int] = None, # Ignorado no backend, usado do token
+    loja_id: Optional[int] = None,
     mes: Optional[int] = None,
     ano: Optional[int] = None
 ):
@@ -482,7 +465,6 @@ def atualizar_status_despesa(request, despesa_id: int, payload: StatusUpdate):
 
     despesa = get_object_or_404(ContaPagar, id=despesa_id, loja_id_externo=active_loja_id)
 
-    # Validar fechamento
     fechamento = FechamentoMensal.objects.filter(
         loja_id_externo=despesa.loja_id_externo,
         mes=despesa.data_competencia.month,
@@ -492,7 +474,6 @@ def atualizar_status_despesa(request, despesa_id: int, payload: StatusUpdate):
     if fechamento and fechamento.status == 'CONCLUIDO':
         raise HttpError(400, f"Não é possível alterar despesa em mês fechado ({despesa.data_competencia.strftime('%m/%Y')}).")
 
-    # Validar se o status existe nas opções do model
     opcoes_status = dict(ContaPagar.STATUS_CHOICES).keys()
     if payload.status not in opcoes_status:
         raise HttpError(400, f"Status inválido. Opções: {list(opcoes_status)}")
@@ -505,11 +486,7 @@ def atualizar_status_despesa(request, despesa_id: int, payload: StatusUpdate):
 def criar_despesa(request, payload: DespesaIn):
     """Cria uma nova conta a pagar."""
     try:
-        print("DEBUG PAYLOAD DE ENTRADA:", payload.dict())
-
-        # Pega a loja do token de segurança que já configuramos
         loja_id_do_token = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
-        print("DEBUG LOJA DO TOKEN:", loja_id_do_token)
 
         if not loja_id_do_token:
             raise HttpError(400, "Nenhuma loja ativa no contexto")
@@ -552,7 +529,6 @@ def editar_despesa(request, despesa_id: int, payload: DespesaIn):
 
     despesa = get_object_or_404(ContaPagar, id=despesa_id, loja_id_externo=active_loja_id)
 
-    # Validar fechamento (Data Atual)
     fechamento_atual = FechamentoMensal.objects.filter(
         loja_id_externo=active_loja_id,
         mes=despesa.data_competencia.month,
@@ -562,7 +538,6 @@ def editar_despesa(request, despesa_id: int, payload: DespesaIn):
     if fechamento_atual and fechamento_atual.status == 'CONCLUIDO':
         raise HttpError(400, f"Não é possível editar despesa de mês fechado ({despesa.data_competencia.strftime('%m/%Y')}).")
 
-    # Validar fechamento (Nova Data - se mudou)
     if payload.data_competencia != despesa.data_competencia:
         fechamento_novo = FechamentoMensal.objects.filter(
             loja_id_externo=active_loja_id,
@@ -615,56 +590,67 @@ def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
     target_loja = active_loja_id
 
     # 1. Instancia dependências (SQL Real ou Mock)
+    """Calcula e persiste o fechamento mensal, blindado contra quebras silenciosas."""
     try:
-        vendas_client = VendasClientSQL()
+        active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
+        if not active_loja_id:
+            raise HttpError(400, "Nenhuma loja ativa no contexto")
+
+        target_loja = active_loja_id
+
+        try:
+            vendas_client = VendasClientSQL()
+        except Exception as e:
+            print(f"Erro conexão SQL: {e}")
+            vendas_client = VendasAPIClientMock()
+
+        repo_taxas = DjangoRepositorioTaxas()
+        repo_despesas = DjangoRepositorioDespesas()
+
+        processador = ProcessadorFechamento(repo_taxas, repo_despesas)
+        dados_vendas = vendas_client.get_faturamento_por_loja(target_loja, mes, ano)
+        resultado = processador.executar_fechamento(target_loja, mes, ano, dados_vendas)
+
+        with transaction.atomic():
+            fechamento, created = FechamentoMensal.objects.update_or_create(
+                loja_id_externo=target_loja,
+                mes=mes,
+                ano=ano,
+                defaults={
+                    'faturamento_bruto': resultado.faturamento_bruto,
+                    'total_taxas': resultado.total_taxas,
+                    'receita_liquida': resultado.receita_liquida,
+                    'total_despesas': resultado.impostos + resultado.custos_produtos + resultado.despesas_operacionais + resultado.despesas_financeiras,
+                    'resultado_operacional': resultado.resultado_operacional,
+                    'status': 'ABERTO',
+                    'dados_auditoria_snapshot': resultado.snapshot_dados
+                }
+            )
+
+        resposta_dre = {
+            "loja_id_externo": target_loja,
+            "mes": mes,
+            "ano": ano,
+            "receita_bruta": resultado.faturamento_bruto or Decimal('0.00'),
+            "total_dinheiro": resultado.total_dinheiro or Decimal('0.00'),
+            "total_cartao": resultado.total_cartao or Decimal('0.00'),
+            "total_pix": resultado.total_pix or Decimal('0.00'),
+            "impostos": resultado.impostos or Decimal('0.00'),
+            "receita_liquida": resultado.receita_liquida or Decimal('0.00'),
+            "custos_produtos": resultado.custos_produtos or Decimal('0.00'),
+            "lucro_bruto": resultado.lucro_bruto or Decimal('0.00'),
+            "despesas_operacionais": resultado.despesas_operacionais or Decimal('0.00'),
+            "resultado_operacional": resultado.resultado_operacional or Decimal('0.00'),
+            "total_taxas": resultado.total_taxas or Decimal('0.00'),
+            "despesas_financeiras": resultado.despesas_financeiras or Decimal('0.00'),
+            "lucro_liquido": resultado.lucro_liquido or Decimal('0.00'),
+            "status": fechamento.status
+        }
+
+        return resposta_dre
+        
     except Exception as e:
-        print(f"Erro conexão SQL: {e}")
-        vendas_client = VendasAPIClientMock()
-
-    repo_taxas = DjangoRepositorioTaxas()
-    repo_despesas = DjangoRepositorioDespesas()
-
-    # 2. Executa Domínio (Cálculos)
-    processador = ProcessadorFechamento(repo_taxas, repo_despesas)
-    dados_vendas = vendas_client.get_faturamento_por_loja(target_loja, mes, ano)
-    resultado = processador.executar_fechamento(target_loja, mes, ano, dados_vendas)
-
-    # 3. Persiste Resultado
-    with transaction.atomic():
-        fechamento, created = FechamentoMensal.objects.update_or_create(
-            loja_id_externo=target_loja,
-            mes=mes,
-            ano=ano,
-            defaults={
-                'faturamento_bruto': resultado.faturamento_bruto,
-                'total_taxas': resultado.total_taxas,
-                'receita_liquida': resultado.receita_liquida,
-                'total_despesas': resultado.impostos + resultado.custos_produtos + resultado.despesas_operacionais + resultado.despesas_financeiras,
-                'resultado_operacional': resultado.resultado_operacional,
-                'status': 'ABERTO',
-                'dados_auditoria_snapshot': resultado.snapshot_dados
-            }
-        )
-
-    # Dicionário exato esperado pelo Schema FechamentoOut
-    resposta_dre = {
-        "loja_id_externo": target_loja,
-        "mes": mes,
-        "ano": ano,
-        "receita_bruta": resultado.faturamento_bruto or Decimal('0.00'),
-        "total_dinheiro": resultado.total_dinheiro or Decimal('0.00'),
-        "total_cartao": resultado.total_cartao or Decimal('0.00'),
-        "total_pix": resultado.total_pix or Decimal('0.00'),
-        "impostos": resultado.impostos or Decimal('0.00'),
-        "receita_liquida": resultado.receita_liquida or Decimal('0.00'),
-        "custos_produtos": resultado.custos_produtos or Decimal('0.00'),
-        "lucro_bruto": resultado.lucro_bruto or Decimal('0.00'),
-        "despesas_operacionais": resultado.despesas_operacionais or Decimal('0.00'),
-        "resultado_operacional": resultado.resultado_operacional or Decimal('0.00'),
-        "total_taxas": resultado.total_taxas or Decimal('0.00'),
-        "despesas_financeiras": resultado.despesas_financeiras or Decimal('0.00'),
-        "lucro_liquido": resultado.lucro_liquido or Decimal('0.00'),
-        "status": fechamento.status
-    }
-
-    return resposta_dre
+        print("======= ERRO FATAL NO FECHAMENTO =======")
+        traceback.print_exc()
+        print("========================================")
+        raise HttpError(500, f"Erro interno detectado: {str(e)}")
