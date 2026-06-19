@@ -180,3 +180,9 @@ https://nextjs.org/docs/messages/module-not-found
 ○ Compiling / ...
  GET / 200 in 3.7s (compile: 3.6s, render: 65ms)
  GET /login 200 in 32ms (compile: 4ms, render: 29ms)
+✓ Compiled in 425ms
+🔗 API_BASE_URL configurada: http://127.0.0.1:8000/api/financeiro
+ GET /login 200 in 1423ms (compile: 585ms, render: 838ms)
+🔗 API_BASE_URL configurada: http://127.0.0.1:8000/api/financeiro
+ GET / 200 in 251ms (compile: 115ms, render: 136ms)
+ GET /login 200 in 33ms (compile: 6ms, render: 27ms)
