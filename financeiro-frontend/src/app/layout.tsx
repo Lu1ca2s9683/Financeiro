@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import { Inter, Geist } from 'next/font/google';
 import './globals.css';
-import { Sidebar } from '@/components/Sidebar';
 import { FinanceiroProvider } from '@/contexts/FinanceiroContext';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { MainLayout } from '@/components/MainLayout';
