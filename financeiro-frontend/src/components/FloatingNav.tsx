@@ -19,6 +19,7 @@ export function FloatingNav() {
     { icon: FileText, label: 'Despesas', href: '/despesas' },
     { icon: PieChart, label: 'DRE', href: '/relatorios/dre' },
     { icon: Settings, label: 'Conferência', href: '/relatorios/conferencia' },
+    { icon: Settings, label: 'Configurações', href: '/configuracoes' },
   ];
 
   return (

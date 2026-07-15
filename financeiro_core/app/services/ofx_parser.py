@@ -29,7 +29,7 @@ class OfxParserService:
                 amt = Decimal(amt_match.group(1))
 
                 # Find description (MEMO or NAME)
-                desc_match = re.search(r'<(MEMO|NAME)>(.*?)(?:</\1>|<|$)', block, flags=re.IGNORECASE)
+                desc_match = re.search(r'<(MEMO)>(.*?)(?:<|$)', block, flags=re.IGNORECASE)
                 desc = desc_match.group(2).strip() if desc_match else "Sem descrição"
 
                 tipo = "SAIDA" if amt < 0 else "ENTRADA"

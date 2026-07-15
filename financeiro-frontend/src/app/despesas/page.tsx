@@ -108,8 +108,32 @@ export default function DespesasPage() {
                  onChange={async (e) => {
                      const file = e.target.files?.[0];
                      if (file) {
-                         alert('Importação recebida. (Mock visual para teste) ' + file.name);
-                         // await api.importExtrato(file);
+                        try {
+                            const formData = new FormData();
+                            formData.append('file', file);
+
+                            const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+                            const lojaId = typeof window !== 'undefined' ? localStorage.getItem('active_loja_id') || '1' : '1';
+
+                            const res = await fetch(`http://localhost:8000/api/financeiro/extrato/importar/${lojaId}`, {
+                                method: 'POST',
+                                headers: {
+                                    'Authorization': `Bearer ${token}`
+                                },
+                                body: formData
+                            });
+
+                            if (res.ok) {
+                                alert('Extrato importado com sucesso!');
+                                window.location.reload();
+                            } else {
+                                const errorData = await res.json();
+                                alert('Erro ao importar extrato: ' + (errorData.detail || 'Erro desconhecido'));
+                            }
+                        } catch (error) {
+                            console.error('Erro na importação:', error);
+                            alert('Erro de conexão ao tentar importar extrato.');
+                        }
                      }
                  }}
               />
@@ -121,7 +145,7 @@ export default function DespesasPage() {
               </label>
 
               <Link
-                  href="/despesas/nova"
+                  href={`/despesas/nova?mes=${mes}&ano=${ano}`}
                   className="w-full sm:w-auto bg-indigo-600 text-white px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 hover:bg-indigo-700 transition shadow-sm font-medium"
               >
                   <Plus size={18} /> Nova Despesa
