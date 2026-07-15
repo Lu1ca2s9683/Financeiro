@@ -17,8 +17,8 @@ class ContaBancariaAdmin(admin.ModelAdmin):
 
 @admin.register(ContaPagar)
 class ContaPagarAdmin(admin.ModelAdmin):
-    list_display = ('descricao', 'valor_liquido', 'data_vencimento', 'status', 'loja_id_externo')
-    list_filter = ('status', 'loja_id_externo', 'data_competencia')
+    list_display = ('descricao', 'valor_liquido', 'data_competencia', 'data_transacao', 'loja_id_externo')
+    list_filter = ('loja_id_externo', 'data_competencia')
     search_fields = ('descricao', 'numero_documento')
 
 @admin.register(FechamentoMensal)

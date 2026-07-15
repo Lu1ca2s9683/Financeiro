@@ -9,7 +9,7 @@ import traceback
 
 # Importações dos modelos e serviços
 from ..models.entidades import (
-    ContaPagar, 
+    ContaPagar, RateioDespesa,
     CategoriaDespesa, 
     FechamentoMensal,
     TaxaMaquininha, 
@@ -61,7 +61,7 @@ class DjangoRepositorioDespesas:
             loja_id_externo=loja_id, 
             data_competencia__month=mes, 
             data_competencia__year=ano
-        ).exclude(status='CANCELADO').aggregate(Sum('valor_liquido'))['valor_liquido__sum']
+        ).aggregate(Sum('valor_liquido'))['valor_liquido__sum']
         return val or Decimal('0.00')
 
     def agrupar_despesas_por_grupo_contabil(self, loja_id, mes, ano):
@@ -70,7 +70,7 @@ class DjangoRepositorioDespesas:
             loja_id_externo=loja_id,
             data_competencia__month=mes,
             data_competencia__year=ano
-        ).exclude(status='CANCELADO').values('categoria__grupo_contabil').annotate(total=Sum('valor_liquido'))
+        ).values('categoria__grupo_contabil').annotate(total=Sum('valor_liquido'))
 
         return {item['categoria__grupo_contabil']: item['total'] for item in qs if item['categoria__grupo_contabil']}
 
@@ -160,9 +160,6 @@ class DespesaDetailOut(DespesaOut):
     fornecedor_id: Optional[int] = None
     loja_id_externo: int
 
-class StatusUpdate(Schema):
-    status: str
-
 # --- Schemas de Conta Bancária ---
 class ContaBancariaIn(Schema):
     nome: str
@@ -242,7 +239,7 @@ def obter_resumo_dashboard(request, loja_id: int, mes: int, ano: int):
         loja_id_externo=loja_id,
         data_competencia__month=mes,
         data_competencia__year=ano
-    ).exclude(status='CANCELADO')
+    )
 
     total = despesas.count()
     if total == 0:
@@ -456,31 +453,6 @@ def obter_despesa(request, despesa_id: int):
     despesa = get_object_or_404(ContaPagar, id=despesa_id, loja_id_externo=active_loja_id)
     return despesa
 
-@router.patch("/despesas/{despesa_id}/status", response=DespesaOut)
-def atualizar_status_despesa(request, despesa_id: int, payload: StatusUpdate):
-    """Atualiza o status da despesa, validando fechamento."""
-    active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
-    if not active_loja_id:
-        raise HttpError(400, "Nenhuma loja ativa no contexto")
-
-    despesa = get_object_or_404(ContaPagar, id=despesa_id, loja_id_externo=active_loja_id)
-
-    fechamento = FechamentoMensal.objects.filter(
-        loja_id_externo=despesa.loja_id_externo,
-        mes=despesa.data_competencia.month,
-        ano=despesa.data_competencia.year
-    ).first()
-
-    if fechamento and fechamento.status == 'CONCLUIDO':
-        raise HttpError(400, f"Não é possível alterar despesa em mês fechado ({despesa.data_competencia.strftime('%m/%Y')}).")
-
-    opcoes_status = dict(ContaPagar.STATUS_CHOICES).keys()
-    if payload.status not in opcoes_status:
-        raise HttpError(400, f"Status inválido. Opções: {list(opcoes_status)}")
-
-    despesa.status = payload.status
-    despesa.save()
-    return despesa
 
 @router.post("/despesas/", response=DespesaOut)
 def criar_despesa(request, payload: DespesaIn):
@@ -509,9 +481,18 @@ def criar_despesa(request, payload: DespesaIn):
             fornecedor=fornecedor,
             valor_bruto=payload.valor,
             data_competencia=payload.data_competencia,
-            data_vencimento=payload.data_vencimento,
+            data_transacao=payload.data_transacao,
             criado_por_id=getattr(request, 'user_id', None)
         )
+        for r in payload.rateios:
+            cat_id = r.categoria_id if r.categoria_id else categoria.id
+            cat_rateio = CategoriaDespesa.objects.get(id=cat_id)
+            RateioDespesa.objects.create(
+                despesa=despesa,
+                descricao=r.descricao,
+                valor=r.valor,
+                categoria=cat_rateio
+            )
         return despesa
 
     except Exception as e:
@@ -560,9 +541,20 @@ def editar_despesa(request, despesa_id: int, payload: DespesaIn):
     despesa.fornecedor = fornecedor
     despesa.valor_bruto = payload.valor
     despesa.data_competencia = payload.data_competencia
-    despesa.data_vencimento = payload.data_vencimento
+    despesa.data_transacao = payload.data_transacao
     despesa.save()
     
+    despesa.splits.all().delete()
+    for r in payload.rateios:
+        cat_id = r.categoria_id if r.categoria_id else categoria.id
+        cat_rateio = CategoriaDespesa.objects.get(id=cat_id)
+        RateioDespesa.objects.create(
+            despesa=despesa,
+            descricao=r.descricao,
+            valor=r.valor,
+            categoria=cat_rateio
+        )
+
     return despesa
 
 @router.delete("/despesas/{despesa_id}")
@@ -654,3 +646,30 @@ def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
         traceback.print_exc()
         print("========================================")
         raise HttpError(500, f"Erro interno detectado: {str(e)}")
+
+from ninja import File
+from ninja.files import UploadedFile
+from financeiro_core.app.services.ofx_parser import OfxParserService
+from datetime import date
+
+class ExtratoItemOut(Schema):
+    data_transacao: date
+    descricao_original: str
+    valor: Decimal
+    tipo: str
+    categoria_sugerida_id: int | None = None
+
+@router.post("/import-statement/", response=list[ExtratoItemOut])
+def importar_extrato(request, file: UploadedFile = File(...)):
+    """Importa um arquivo OFX/OFC e retorna as transações com sugestões de categoria."""
+    active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
+    if not active_loja_id:
+        raise HttpError(400, "Nenhuma loja ativa no contexto")
+
+    content = file.read().decode('utf-8', errors='ignore')
+    transactions = OfxParserService.parse(content)
+
+    for t in transactions:
+        t['categoria_sugerida_id'] = OfxParserService.adivinhar_categoria(t['descricao_original'], active_loja_id)
+
+    return transactions

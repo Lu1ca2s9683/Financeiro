@@ -1,0 +1,15 @@
+feat: Refatorar módulo Contas a Pagar para Regime de Caixa e criar conciliação bancária/DRE
+
+**Backend (Python/Django)**
+*   Removido `data_vencimento` e `status` da entidade `ContaPagar`.
+*   Adicionado `data_transacao` à `ContaPagar`.
+*   Adicionada sub-entidade `RateioDespesa` (Splits) permitindo dividir uma única despesa em várias categorias.
+*   Criado `OfxParserService` para leitura e extração de transações financeiras de ficheiros `.ofc`/`.ofx`.
+*   Implementada lógica de "Inteligência de Categorização" para sugerir categorias com base no histórico de `ContaPagar`.
+*   Atualizados os endpoints da API (importação e listagem).
+
+**Frontend (React/Next.js/Tailwind)**
+*   Implementado o filtro de "Mês/Ano" (`DateFilterContext`) usado como fonte da verdade na listagem.
+*   Página de Despesas refatorada: colunas obsoletas removidas, implementada a interface de importação de extrato, adicionado recurso "Sanfona" (`Accordion`) para a expansão e discriminação de `Rateio/Split` por linha.
+*   Criada a nova página de Conferência (Conciliação): vista de 2 colunas para comparação entre Entradas do extrato importado vs Vendas projetadas no sistema.
+*   Criada a nova página DRE Gerencial: relatório que contabiliza as Receitas Brutas, Custo, Margem e Resultado Líquido baseados no período selecionado (Regime de Caixa).

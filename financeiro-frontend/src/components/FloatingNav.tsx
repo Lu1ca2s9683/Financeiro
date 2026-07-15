@@ -17,8 +17,8 @@ export function FloatingNav() {
     { icon: LayoutDashboard, label: 'Geral', href: '/' },
     { icon: Wallet, label: 'Tesouraria', href: '/tesouraria' },
     { icon: FileText, label: 'Despesas', href: '/despesas' },
-    { icon: PieChart, label: 'Relatórios', href: '/relatorios' },
-    { icon: Settings, label: 'Ajustes', href: '/configuracoes' },
+    { icon: PieChart, label: 'DRE', href: '/relatorios/dre' },
+    { icon: Settings, label: 'Conferência', href: '/relatorios/conferencia' },
   ];
 
   return (
