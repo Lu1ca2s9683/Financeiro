@@ -19,7 +19,6 @@ export default function DespesasPage() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [splits, setSplits] = useState<any[]>([]);
   const [totalMes, setTotalMes] = useState(0);
-  
   // Estado para extrato importado pendente de categorização
   const [importedDespesas, setImportedDespesas] = useState<any[]>([]);
   const [categoriasPendentes, setCategoriasPendentes] = useState<any[]>([]);
@@ -302,9 +301,6 @@ export default function DespesasPage() {
               </div>
           </div>
       )}
-
-      {/* ALERTA: A TABELA DE DESPESAS FOI REMOVIDA AQUI PELO JULES */}
-      {/* Será necessário pedir-lhe para a reinserir depois que a build funcionar */}
 
     </main>
   );
