@@ -646,19 +646,48 @@ def importar_extrato(request, file: UploadedFile = File(...)):
 @router.post("/extrato/importar-despesas/{loja_id}/")
 def importar_extrato_despesas(request, loja_id: int, file: UploadedFile = File(...)):
     """Importa um arquivo OFX/OFC filtrando estritamente para SAIDAS."""
+    import re
+
     active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
     if not active_loja_id or int(active_loja_id) != loja_id:
         raise HttpError(400, "Loja inválida no contexto")
 
     check_permission(request, loja_id)
 
-    content = file.read().decode('utf-8', errors='ignore')
-    transactions = OfxParserService.parse(content)
+    try:
+        conteudo = file.read().decode('latin-1', errors='ignore')
+    except Exception as e:
+        raise HttpError(400, "Erro ao ler a codificação do ficheiro.")
 
-    saidas = []
-    for t in transactions:
-        if t['tipo'] == 'SAIDA':
-            t['categoria_sugerida_id'] = OfxParserService.adivinhar_categoria(t['descricao_original'], active_loja_id)
-            saidas.append(t)
+    transacoes_negativas = []
 
-    return saidas
+    blocos = conteudo.split('<STMTTRN>')
+
+    for bloco in blocos[1:]:
+        try:
+            dt_match = re.search(r'<DTPOSTED>(\d{8})', bloco)
+            amt_match = re.search(r'<TRNAMT>([\-\d\.]+)', bloco)
+            memo_match = re.search(r'<MEMO>(.*)', bloco)
+
+            if dt_match and amt_match and memo_match:
+                valor = float(amt_match.group(1))
+
+                if valor < 0:
+                    data_str = dt_match.group(1)
+                    data_formatada = f"{data_str[0:4]}-{data_str[4:6]}-{data_str[6:8]}"
+
+                    descricao = memo_match.group(1).strip()
+
+                    categoria_sug = OfxParserService.adivinhar_categoria(descricao, active_loja_id)
+
+                    transacoes_negativas.append({
+                        "data_transacao": data_formatada,
+                        "descricao_original": descricao,
+                        "valor": valor,
+                        "tipo": "SAIDA",
+                        "categoria_sugerida_id": categoria_sug
+                    })
+        except Exception:
+            continue
+
+    return transacoes_negativas
