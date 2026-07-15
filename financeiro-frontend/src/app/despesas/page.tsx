@@ -137,6 +137,7 @@ export default function DespesasPage() {
     carregar();
   }, [activeLoja?.id || 0, mes, ano]);
 
+  return (
     <main className="p-8 space-y-6 animate-enter">
       
       {/* Header com Filtros e Ações */}
@@ -164,29 +165,10 @@ export default function DespesasPage() {
                      const file = e.target.files?.[0];
                      if (file) {
                         try {
-                            const formData = new FormData();
-                            formData.append('file', file);
-
-                            const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-                            const lojaId = typeof window !== 'undefined' ? localStorage.getItem('active_loja_id') || '1' : '1';
-
-                            const res = await fetch(`http://localhost:8000/api/financeiro/extrato/importar-despesas/${lojaId}`, {
-                                method: 'POST',
-                                headers: {
-                                    'Authorization': `Bearer ${token}`
-                                },
-                                body: formData
-                            });
-
-                            if (res.ok) {
-                                const extratoTransacoes = await res.json();
-                                setImportedDespesas(extratoTransacoes.map((t: any, idx: number) => ({ ...t, _tempId: idx, expanded: false, rateios: [] })));
-                                alert(`Extrato lido com sucesso! ${extratoTransacoes.length} saídas aguardam categorização.`);
-                                // Idealmente preencher um modal ou estado, mas como a página não tem visual para extratos...
-                            } else {
-                                const errorData = await res.json();
-                                alert('Erro ao importar extrato: ' + (errorData.detail || 'Erro desconhecido'));
-                            }
+                            const lojaId = activeLoja?.id || (typeof window !== 'undefined' ? localStorage.getItem('active_loja_id') : '1') || '1';
+                            const extratoTransacoes = await api.importarExtratoDespesas(lojaId, file);
+                            setImportedDespesas(extratoTransacoes.map((t: any, idx: number) => ({ ...t, _tempId: idx, expanded: false, rateios: [] })));
+                            alert(`Extrato lido com sucesso! ${extratoTransacoes.length} saídas aguardam categorização.`);
                         } catch (error) {
                             console.error('Erro na importação:', error);
                             alert('Erro de conexão ao tentar importar extrato.');

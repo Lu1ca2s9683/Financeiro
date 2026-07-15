@@ -304,6 +304,7 @@ export const api = {
   },
 
   importExtrato: async (file: File): Promise<ExtratoItem[]> => {
+
     const formData = new FormData();
     formData.append('file', file);
 
@@ -349,5 +350,22 @@ export const api = {
     const res = await fetch(`${API_BASE_URL}/despesas/${id}`, { method: 'DELETE', headers: getHeaders() });
     if (!res.ok) throw new Error('Falha ao excluir');
     return res.json();
-  }
+  },
+  importarExtratoDespesas: async (lojaId: number | string, file: File): Promise<any[]> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const headers = getHeaders();
+    delete (headers as any)['Content-Type']; // Remove para o browser colocar o boundary
+
+    const res = await fetch(`${API_BASE_URL}/extrato/importar-despesas/${lojaId}/`, {
+      method: 'POST',
+      headers: headers,
+      body: formData,
+    });
+
+    if (!res.ok) {
+        throw new Error('Falha na importação do extrato');
+    }
+    return res.json();
+  },
 };
