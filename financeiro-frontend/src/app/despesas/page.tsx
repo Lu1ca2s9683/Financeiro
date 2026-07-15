@@ -19,6 +19,13 @@ export default function DespesasPage() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [splits, setSplits] = useState<any[]>([]);
   const [totalMes, setTotalMes] = useState(0);
+  // Estado para extrato importado pendente de categorização
+  const [importedDespesas, setImportedDespesas] = useState<any[]>([]);
+  const [categoriasPendentes, setCategoriasPendentes] = useState<any[]>([]);
+
+  useEffect(() => {
+      api.getCategorias().then(setCategoriasPendentes).catch(console.error);
+  }, []);
 
   // Estados para edição
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -55,6 +62,55 @@ export default function DespesasPage() {
     }
   };
 
+
+  const salvarImportada = async (index: number) => {
+      const item = importedDespesas[index];
+      if (!item.categoria_sugerida_id) {
+          alert('Por favor, selecione uma categoria para a despesa.');
+          return;
+      }
+      try {
+          const payload = {
+              descricao: item.descricao_original,
+              valor: item.valor,
+              categoria_id: item.categoria_sugerida_id,
+              data_competencia: item.data_transacao,
+              data_transacao: item.data_transacao,
+              rateios: item.rateios.map((r: any) => ({
+                  descricao: r.descricao,
+                  valor: parseFloat(r.valor.replace(',', '.')),
+                  categoria_id: r.categoria_id ? Number(r.categoria_id) : undefined
+              }))
+          };
+          await api.createDespesa(payload);
+          const newImported = [...importedDespesas];
+          newImported.splice(index, 1);
+          setImportedDespesas(newImported);
+          carregar(); // Recarrega a tabela principal
+      } catch (error) {
+          console.error(error);
+          alert('Erro ao salvar despesa importada.');
+      }
+  };
+
+  const toggleImportedExpanded = (index: number) => {
+      const newImported = [...importedDespesas];
+      newImported[index].expanded = !newImported[index].expanded;
+      setImportedDespesas(newImported);
+  };
+
+  const updateImportedRateio = (index: number, rateioIndex: number, field: string, value: string) => {
+      const newImported = [...importedDespesas];
+      newImported[index].rateios[rateioIndex][field] = value;
+      setImportedDespesas(newImported);
+  };
+
+  const addImportedRateio = (index: number) => {
+      const newImported = [...importedDespesas];
+      newImported[index].rateios.push({ descricao: '', valor: '', categoria_id: '' });
+      newImported[index].expanded = true;
+      setImportedDespesas(newImported);
+  };
   const excluir = async (id: number) => {
     if (!confirm('Tem certeza que deseja excluir esta despesa?')) return;
     try {
@@ -81,7 +137,6 @@ export default function DespesasPage() {
     carregar();
   }, [activeLoja?.id || 0, mes, ano]);
 
-  return (
     <main className="p-8 space-y-6 animate-enter">
       
       {/* Header com Filtros e Ações */}
@@ -115,7 +170,7 @@ export default function DespesasPage() {
                             const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
                             const lojaId = typeof window !== 'undefined' ? localStorage.getItem('active_loja_id') || '1' : '1';
 
-                            const res = await fetch(`http://localhost:8000/api/financeiro/extrato/importar/${lojaId}`, {
+                            const res = await fetch(`http://localhost:8000/api/financeiro/extrato/importar-despesas/${lojaId}`, {
                                 method: 'POST',
                                 headers: {
                                     'Authorization': `Bearer ${token}`
@@ -125,11 +180,9 @@ export default function DespesasPage() {
 
                             if (res.ok) {
                                 const extratoTransacoes = await res.json();
-                                const saidas = extratoTransacoes.filter((t: any) => t.tipo === 'SAIDA');
-                                alert(`Extrato importado com sucesso! Encontradas ${saidas.length} saídas.`);
+                                setImportedDespesas(extratoTransacoes.map((t: any, idx: number) => ({ ...t, _tempId: idx, expanded: false, rateios: [] })));
+                                alert(`Extrato lido com sucesso! ${extratoTransacoes.length} saídas aguardam categorização.`);
                                 // Idealmente preencher um modal ou estado, mas como a página não tem visual para extratos...
-                                // window.location.reload();
-                                window.location.reload();
                             } else {
                                 const errorData = await res.json();
                                 alert('Erro ao importar extrato: ' + (errorData.detail || 'Erro desconhecido'));
@@ -159,6 +212,113 @@ export default function DespesasPage() {
         </div>
 
       </div>
+
+      {/* Seção de Importações Pendentes */}
+      {importedDespesas.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl shadow-sm p-6 mb-6">
+              <h2 className="text-lg font-bold text-amber-900 mb-4 flex items-center gap-2">
+                  <AlertCircle size={20} />
+                  Despesas Importadas Pendentes de Categorização ({importedDespesas.length})
+              </h2>
+              <div className="space-y-4">
+                  {importedDespesas.map((item, index) => (
+                      <div key={item._tempId} className="bg-white border border-amber-100 rounded-lg p-4 shadow-sm flex flex-col gap-4">
+                          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                              <div className="flex-1">
+                                  <div className="text-xs text-slate-500 font-mono mb-1">{item.data_transacao}</div>
+                                  <div className="font-semibold text-slate-900">{item.descricao_original}</div>
+                              </div>
+                              <div className="font-mono font-bold text-rose-600 text-lg">
+                                  - {Number(item.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              </div>
+                              <div className="w-full md:w-64">
+                                  <select
+                                      className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                                      value={item.categoria_sugerida_id || ''}
+                                      onChange={(e) => {
+                                          const newImported = [...importedDespesas];
+                                          newImported[index].categoria_sugerida_id = e.target.value;
+                                          setImportedDespesas(newImported);
+                                      }}
+                                  >
+                                      <option value="">Selecione a categoria...</option>
+                                      {categoriasPendentes.map(c => (
+                                          <option key={c.id} value={c.id}>{c.nome}</option>
+                                      ))}
+                                  </select>
+                              </div>
+                              <div className="flex gap-2 w-full md:w-auto">
+                                  <button onClick={() => toggleImportedExpanded(index)} className="px-3 py-2 text-sm font-medium border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition">
+                                      Rateio ({item.rateios.length})
+                                  </button>
+                                  <button onClick={() => salvarImportada(index)} className="px-4 py-2 text-sm font-medium bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition">
+                                      Salvar
+                                  </button>
+                              </div>
+                          </div>
+
+                          {/* Sanfona de Rateio */}
+                          {item.expanded && (
+                              <div className="pt-4 border-t border-slate-100 bg-slate-50/50 p-4 rounded-lg mt-2">
+                                  <div className="flex justify-between items-center mb-4">
+                                      <h3 className="text-sm font-semibold text-slate-700">Divisão da Despesa (Rateio)</h3>
+                                      <button onClick={() => addImportedRateio(index)} className="text-xs text-indigo-600 font-medium hover:underline">+ Adicionar Linha</button>
+                                  </div>
+
+                                  {item.rateios.length === 0 ? (
+                                      <p className="text-xs text-slate-500">Nenhum rateio configurado. O valor total irá para a categoria principal.</p>
+                                  ) : (
+                                      <div className="space-y-3">
+                                          {item.rateios.map((r: any, rIdx: number) => (
+                                              <div key={rIdx} className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                                  <input
+                                                      type="text"
+                                                      placeholder="Descrição específica"
+                                                      className="col-span-2 text-sm border border-slate-300 rounded px-3 py-2"
+                                                      value={r.descricao}
+                                                      onChange={(e) => updateImportedRateio(index, rIdx, 'descricao', e.target.value)}
+                                                  />
+                                                  <input
+                                                      type="number"
+                                                      step="0.01"
+                                                      placeholder="Valor R$"
+                                                      className="text-sm border border-slate-300 rounded px-3 py-2"
+                                                      value={r.valor}
+                                                      onChange={(e) => updateImportedRateio(index, rIdx, 'valor', e.target.value)}
+                                                  />
+                                                  <div className="flex gap-2">
+                                                      <select
+                                                          className="w-full text-sm border border-slate-300 rounded px-3 py-2"
+                                                          value={r.categoria_id}
+                                                          onChange={(e) => updateImportedRateio(index, rIdx, 'categoria_id', e.target.value)}
+                                                      >
+                                                          <option value="">(Usar principal)</option>
+                                                          {categoriasPendentes.map(c => (
+                                                              <option key={c.id} value={c.id}>{c.nome}</option>
+                                                          ))}
+                                                      </select>
+                                                      <button
+                                                          onClick={() => {
+                                                              const newImported = [...importedDespesas];
+                                                              newImported[index].rateios.splice(rIdx, 1);
+                                                              setImportedDespesas(newImported);
+                                                          }}
+                                                          className="text-rose-500 hover:bg-rose-50 px-2 rounded"
+                                                      >
+                                                          <X size={16} />
+                                                      </button>
+                                                  </div>
+                                              </div>
+                                          ))}
+                                      </div>
+                                  )}
+                              </div>
+                          )}
+                      </div>
+                  ))}
+              </div>
+          </div>
+      )}
 
     </main>
   );
