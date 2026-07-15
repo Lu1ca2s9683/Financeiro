@@ -643,6 +643,7 @@ def importar_extrato(request, file: UploadedFile = File(...)):
     return transactions
 
 @router.post("/extrato/importar-despesas/{loja_id}")
+@router.post("/extrato/importar-despesas/{loja_id}/")
 def importar_extrato_despesas(request, loja_id: int, file: UploadedFile = File(...)):
     """Importa um arquivo OFX/OFC filtrando estritamente para SAIDAS."""
     active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
