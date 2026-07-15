@@ -1,15 +1,12 @@
 import sys
-
 filepath = './financeiro_core/app/services/ofx_parser.py'
 with open(filepath, 'r') as f:
     content = f.read()
 
-old_desc = "desc_match = re.search(r'<(MEMO|NAME)>(.*?)(?:</\\1>|<|$)', block, flags=re.IGNORECASE)"
-new_desc = "desc_match = re.search(r'<(MEMO)>(.*?)(?:<|$)', block, flags=re.IGNORECASE)"
-
-content = content.replace(old_desc, new_desc)
+# Make it extremely resilient to spacing
+content = content.replace(r"<DTPOSTED>(\d{8})", r"<DTPOSTED>\s*(\d{8})")
+content = content.replace(r"<TRNAMT>([-\d\.]+)", r"<TRNAMT>\s*([-\d\.]+)")
+content = content.replace(r"<MEMO>(.*?)(?:\r?\n|<|$)", r"<MEMO>\s*(.*?)(?:\r?\n|<|$)")
 
 with open(filepath, 'w') as f:
     f.write(content)
-
-print("OFC/OFX Parser updated")

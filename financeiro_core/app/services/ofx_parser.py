@@ -16,20 +16,20 @@ class OfxParserService:
         for block in stmtrs_blocks[1:]:
             try:
                 # Find date (DTPOSTED)
-                dt_match = re.search(r'<DTPOSTED>(\d{8})', block, flags=re.IGNORECASE)
+                dt_match = re.search(r'<DTPOSTED>\s*(\d{8})', block, flags=re.IGNORECASE)
                 if not dt_match:
                     continue
                 date_str = dt_match.group(1)
                 dt = datetime.strptime(date_str, "%Y%m%d").date()
 
                 # Find amount (TRNAMT)
-                amt_match = re.search(r'<TRNAMT>([-\d\.]+)', block, flags=re.IGNORECASE)
+                amt_match = re.search(r'<TRNAMT>\s*([-\d\.]+)', block, flags=re.IGNORECASE)
                 if not amt_match:
                     continue
                 amt = Decimal(amt_match.group(1))
 
                 # Find description (MEMO or NAME)
-                desc_match = re.search(r'<MEMO>(.*?)(?:\r?\n|<|$)', block, flags=re.IGNORECASE)
+                desc_match = re.search(r'<MEMO>\s*(.*?)(?:\r?\n|<|$)', block, flags=re.IGNORECASE)
                 desc = desc_match.group(2).strip() if desc_match else "Sem descrição"
 
                 tipo = "SAIDA" if amt < 0 else "ENTRADA"
