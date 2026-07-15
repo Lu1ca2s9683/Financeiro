@@ -136,13 +136,6 @@ class TaxaMaquininha(models.Model):
         unique_together = ('perfil', 'tipo', 'bandeira', 'parcela_inicial', 'parcela_final')
 
 class ContaPagar(models.Model):
-    STATUS_CHOICES = [
-        ('PREVISTO', 'Previsto'),
-        ('PAGO', 'Pago'),
-        ('ATRASADO', 'Atrasado'),
-        ('CANCELADO', 'Cancelado'),
-    ]
-
     descricao = models.CharField(max_length=255)
     loja_id_externo = models.IntegerField(verbose_name="ID da Loja", db_index=True)
     fornecedor = models.ForeignKey(Fornecedor, on_delete=models.PROTECT, null=True, blank=True)
@@ -154,10 +147,9 @@ class ContaPagar(models.Model):
     valor_liquido = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
     
     data_competencia = models.DateField(help_text="Mês de referência (Regime de Competência)")
-    data_vencimento = models.DateField()
     data_pagamento = models.DateField(null=True, blank=True)
+    data_transacao = models.DateField(help_text="Data real em que o dinheiro saiu da conta", null=True, blank=True)
     
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PREVISTO')
     conta_origem = models.ForeignKey(ContaBancaria, on_delete=models.PROTECT, null=True, blank=True)
     
     criado_em = models.DateTimeField(auto_now_add=True)
@@ -202,3 +194,11 @@ class AuditoriaLog(models.Model):
     dados_anteriores = models.JSONField(null=True, blank=True)
     dados_novos = models.JSONField(null=True, blank=True)
     data_hora = models.DateTimeField(auto_now_add=True)
+class RateioDespesa(models.Model):
+    despesa = models.ForeignKey(ContaPagar, on_delete=models.CASCADE, related_name='splits')
+    descricao = models.CharField(max_length=255)
+    valor = models.DecimalField(max_digits=12, decimal_places=2)
+    categoria = models.ForeignKey(CategoriaDespesa, on_delete=models.SET_NULL, null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.descricao} - R$ {self.valor}"

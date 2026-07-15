@@ -29,16 +29,28 @@ export interface PerfilTaxa {
   taxas: TaxaItem[];
 }
 
+export interface Rateio {
+  id?: number;
+  descricao: string;
+  valor: number;
+  categoria_id?: number;
+}
+
+export interface ExtratoItem {
+  data_transacao: string;
+  descricao_original: string;
+  valor: number;
+  tipo: string;
+  categoria_sugerida_id?: number | null;
+}
+
 export interface Despesa {
   id: number;
   descricao: string;
   valor_liquido: number;
-  status: string;
   data_competencia: string;
   categoria?: { id: number; nome: string };
-  dias_para_vencimento?: number;
-  is_vencendo?: boolean;
-  is_atrasado?: boolean;
+  data_transacao?: string;
 }
 
 export interface DashboardResumo {
@@ -56,7 +68,7 @@ export interface DespesaDetail extends Despesa {
   valor_bruto: number;
   valor_desconto: number;
   valor_acrescimo: number;
-  data_vencimento: string;
+  splits?: Rateio[];
   fornecedor_id?: number;
   loja_id_externo: number;
 }
@@ -291,6 +303,22 @@ export const api = {
     return res.json();
   },
 
+  importExtrato: async (file: File): Promise<ExtratoItem[]> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const headers = getHeaders();
+    delete (headers as any)['Content-Type']; // Let browser set boundary
+
+    const res = await fetch(`${API_BASE_URL}/import-statement/`, {
+      method: 'POST',
+      headers: headers,
+      body: formData,
+    });
+    if (!res.ok) throw new Error('Falha ao importar extrato');
+    return res.json();
+  },
+
   createDespesa: async (data: any) => {
     const res = await fetch(`${API_BASE_URL}/despesas/`, {
       method: 'POST',
@@ -313,19 +341,6 @@ export const api = {
     if (!res.ok) {
          const errorData = await res.json().catch(() => ({}));
          throw new Error(errorData.detail || 'Erro ao atualizar despesa');
-    }
-    return res.json();
-  },
-
-  updateDespesaStatus: async (id: number, status: string): Promise<Despesa> => {
-    const res = await fetch(`${API_BASE_URL}/despesas/${id}/status`, {
-      method: 'PATCH',
-      headers: getHeaders(),
-      body: JSON.stringify({ status }),
-    });
-    if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.detail || 'Erro ao atualizar status');
     }
     return res.json();
   },

@@ -13,12 +13,13 @@ export function DespesaForm({ initialData, onSuccess, onCancel }: DespesaFormPro
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
+  const [rateios, setRateios] = useState<{id?: number, descricao: string, valor: string, categoria_id: string}[]>([]);
   const [form, setForm] = useState({
     descricao: '',
     categoria_id: '',
     valor: '',
     data_competencia: new Date().toISOString().slice(0, 10),
-    data_vencimento: new Date().toISOString().slice(0, 10)
+    data_transacao: new Date().toISOString().slice(0, 10)
   });
 
   useEffect(() => {
@@ -28,8 +29,11 @@ export function DespesaForm({ initialData, onSuccess, onCancel }: DespesaFormPro
         categoria_id: initialData.categoria ? String(initialData.categoria.id) : '',
         valor: String(initialData.valor_bruto),
         data_competencia: initialData.data_competencia,
-        data_vencimento: initialData.data_vencimento
+        data_transacao: initialData.data_transacao || new Date().toISOString().slice(0, 10)
       });
+      if (initialData.splits) {
+          setRateios(initialData.splits.map(s => ({...s, valor: String(s.valor), categoria_id: s.categoria_id ? String(s.categoria_id) : ''})));
+      }
     }
   }, [initialData]);
 
@@ -56,7 +60,8 @@ export function DespesaForm({ initialData, onSuccess, onCancel }: DespesaFormPro
       const payload = {
         ...form,
         categoria_id: Number(form.categoria_id),
-        valor: valorNumerico
+        valor: valorNumerico,
+        rateios: rateios.map(r => ({...r, valor: parseFloat(r.valor.replace(',', '.')), categoria_id: r.categoria_id ? Number(r.categoria_id) : undefined}))
       };
 
       if (initialData) {
@@ -138,17 +143,81 @@ export function DespesaForm({ initialData, onSuccess, onCancel }: DespesaFormPro
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Vencimento</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Data Transação</label>
           <input
             required
             type="date"
             className="w-full bg-white text-slate-900 border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
-            value={form.data_vencimento}
-            onChange={e => setForm({...form, data_vencimento: e.target.value})}
+            value={form.data_transacao}
+            onChange={e => setForm({...form, data_transacao: e.target.value})}
           />
         </div>
       </div>
 
+            <div className="pt-4 border-t border-slate-100">
+        <h3 className="text-sm font-medium text-slate-700 mb-4">Rateio (Divisão de Despesa)</h3>
+        {rateios.map((r, index) => (
+            <div key={index} className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-4">
+                <input
+                    type="text"
+                    placeholder="Descrição do rateio"
+                    className="col-span-2 w-full bg-white border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
+                    value={r.descricao}
+                    onChange={e => {
+                        const newRateios = [...rateios];
+                        newRateios[index].descricao = e.target.value;
+                        setRateios(newRateios);
+                    }}
+                />
+                <input
+                    type="number"
+                    step="0.01"
+                    placeholder="Valor"
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
+                    value={r.valor}
+                    onChange={e => {
+                        const newRateios = [...rateios];
+                        newRateios[index].valor = e.target.value;
+                        setRateios(newRateios);
+                    }}
+                />
+                <div className="flex gap-2">
+                    <select
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
+                        value={r.categoria_id}
+                        onChange={e => {
+                            const newRateios = [...rateios];
+                            newRateios[index].categoria_id = e.target.value;
+                            setRateios(newRateios);
+                        }}
+                    >
+                        <option value="">(Padrão)</option>
+                        {categorias.map(cat => (
+                            <option key={cat.id} value={cat.id}>{cat.nome}</option>
+                        ))}
+                    </select>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            const newRateios = [...rateios];
+                            newRateios.splice(index, 1);
+                            setRateios(newRateios);
+                        }}
+                        className="p-2 text-rose-500 bg-rose-50 rounded"
+                    >
+                        X
+                    </button>
+                </div>
+            </div>
+        ))}
+        <button
+            type="button"
+            onClick={() => setRateios([...rateios, {descricao: '', valor: '', categoria_id: ''}])}
+            className="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
+        >
+            + Adicionar linha de rateio
+        </button>
+      </div>
       <div className="pt-4 border-t border-slate-100 flex justify-end gap-3">
          {onCancel && (
             <button
