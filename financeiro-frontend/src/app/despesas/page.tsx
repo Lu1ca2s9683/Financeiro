@@ -172,8 +172,11 @@ export default function DespesasPage() {
 
                             const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
                             const lojaId = typeof window !== 'undefined' ? localStorage.getItem('active_loja_id') || '1' : '1';
+                            
+                            // Correção Estratégica: Usar a variável de ambiente para a API Base URL ou fallback para o servidor real
+                            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://financeiro-backend-2isx.onrender.com/api/financeiro';
 
-                            const res = await fetch(`http://localhost:8000/api/financeiro/extrato/importar-despesas/${lojaId}`, {
+                            const res = await fetch(`${apiUrl}/extrato/importar-despesas/${lojaId}`, {
                                 method: 'POST',
                                 headers: {
                                     'Authorization': `Bearer ${token}`
