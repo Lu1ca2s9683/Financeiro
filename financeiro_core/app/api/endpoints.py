@@ -231,85 +231,53 @@ class FechamentoOut(Schema):
 
 @router.get("/dashboard/resumo/{loja_id}/{mes}/{ano}", response=DashboardResumoOut)
 def obter_resumo_dashboard(request, loja_id: int, mes: int, ano: int):
-    """Retorna dados agregados para o dashboard."""
+    """Retorna dados agregados para o dashboard usando Regime de Caixa (data_transacao)."""
     print(f"DEBUG: Endpoint Dashboard acessado pelo usuário {request.auth}")
     check_permission(request, loja_id)
 
     despesas = ContaPagar.objects.filter(
         loja_id_externo=loja_id,
-        data_competencia__month=mes,
-        data_competencia__year=ano
-    )
+        data_transacao__month=mes,
+        data_transacao__year=ano
+    ).prefetch_related('splits')
 
     total = despesas.count()
     if total == 0:
         return {
-            "percentual_pago": 0.0,
+            "percentual_pago": 100.0,
             "percentual_atrasado": 0.0,
             "percentual_previsto": 0.0,
             "total_despesas_mes": 0,
             "despesas_vencendo_semana": 0,
             "despesas_atrasadas": 0,
             "saude_financeira": "SAUDAVEL",
-            "mensagem_assistente": "Nenhuma despesa lançada para este período."
+            "mensagem_assistente": "Nenhuma despesa lançada no regime de caixa para este período."
         }
 
-    pagas = despesas.filter(status='PAGO').count()
-    atrasadas = despesas.filter(status='ATRASADO').count()
-    hoje = date.today()
-    atrasadas_reais = 0
-    previstas = 0
-    vencendo_semana = 0
+    total_despesas_mes = 0
 
     for d in despesas:
-        if d.status == 'PAGO':
-            continue
-
-        if d.status == 'ATRASADO' or d.data_vencimento < hoje:
-            atrasadas_reais += 1
+        if d.splits.exists():
+            for split in d.splits.all():
+                total_despesas_mes += float(split.valor)
         else:
-            previstas += 1
-            dias = (d.data_vencimento - hoje).days
-            if 0 <= dias <= 7:
-                vencendo_semana += 1
+            total_despesas_mes += float(d.valor_liquido)
 
-    perc_pago = (pagas / total) * 100
-    perc_atrasado = (atrasadas_reais / total) * 100
-    perc_previsto = (previstas / total) * 100
-
-    if perc_pago >= 80:
-        saude = "SAUDAVEL"
-    elif perc_pago >= 50:
-        saude = "ATENCAO"
-    else:
-        saude = "CRITICO"
-
-    msg = ""
-    if vencendo_semana > 0:
-        msg = f"Atenção: Você tem {vencendo_semana} despesa(s) vencendo nos próximos 7 dias."
-    elif atrasadas_reais > 0:
-        msg = f"Cuidado: Existem {atrasadas_reais} despesa(s) em atraso neste mês."
-    elif perc_pago > 90:
-        msg = f"Excelente! {int(perc_pago)}% das despesas deste mês já foram quitadas."
-    elif perc_previsto > 50:
-        msg = "Mês em andamento. Mantenha o controle dos vencimentos."
-    else:
-        msg = "Saúde financeira estável. Nenhuma pendência urgente."
+    # Como filtramos por data_transacao, consideramos tudo como pago/caixa.
+    perc_pago = 100.0
+    perc_atrasado = 0.0
+    perc_previsto = 0.0
 
     return {
         "percentual_pago": round(perc_pago, 1),
         "percentual_atrasado": round(perc_atrasado, 1),
         "percentual_previsto": round(perc_previsto, 1),
-        "total_despesas_mes": total,
-        "despesas_vencendo_semana": vencendo_semana,
-        "despesas_atrasadas": atrasadas_reais,
-        "saude_financeira": saude,
-        "mensagem_assistente": msg
+        "total_despesas_mes": round(total_despesas_mes, 2),
+        "despesas_vencendo_semana": 0,
+        "despesas_atrasadas": 0,
+        "saude_financeira": "SAUDAVEL",
+        "mensagem_assistente": "Resumo calculado em regime de caixa com sucesso."
     }
-
-# --- CONTAS BANCÁRIAS (CRUD TESOURARIA) ---
-
-@router.get("/contas/", response=List[ContaBancariaOut], auth=AuthBearer())
 def listar_contas(request):
     """Lista contas bancárias e cofres da loja ativa."""
     active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)

@@ -18,7 +18,18 @@ export function DespesaForm({ initialData, onSuccess, onCancel }: DespesaFormPro
     descricao: '',
     categoria_id: '',
     valor: '',
-    data_competencia: new Date().toISOString().slice(0, 10),
+    data_competencia: (() => {
+      if (typeof window !== 'undefined') {
+        const urlParams = new URLSearchParams(window.location.search);
+        const mes = urlParams.get('mes');
+        const ano = urlParams.get('ano');
+        if (mes && ano) {
+          const m = mes.padStart(2, '0');
+          return `${ano}-${m}-01`;
+        }
+      }
+      return new Date().toISOString().slice(0, 10);
+    })(),
     data_transacao: new Date().toISOString().slice(0, 10)
   });
 

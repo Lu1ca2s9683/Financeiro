@@ -1,9 +1,13 @@
-'use client';
-import { useState, useEffect } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import { api } from '@/services/api';
-import { useDateFilter } from '@/contexts/DateFilterContext';
-import { Download } from 'lucide-react';
+import sys
+
+filepath = './financeiro-frontend/src/app/relatorios/dre/page.tsx'
+with open(filepath, 'w') as f:
+    f.write('''\'use client\';
+import { useState, useEffect } from \'react\';
+import { useAuth } from \'@/contexts/AuthContext\';
+import { api } from \'@/services/api\';
+import { useDateFilter } from \'@/contexts/DateFilterContext\';
+import { Download } from \'lucide-react\';
 
 export default function DreGerencialPage() {
     const { activeLoja } = useAuth();
@@ -23,7 +27,7 @@ export default function DreGerencialPage() {
     if (!activeLoja) return null;
 
     const formatCurrency = (val: number | string) => {
-        return Number(val || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        return Number(val || 0).toLocaleString(\'pt-BR\', { style: \'currency\', currency: \'BRL\' });
     };
 
     return (
@@ -134,3 +138,5 @@ export default function DreGerencialPage() {
         </main>
     );
 }
+''')
+print("DRE updated to corporate style")
