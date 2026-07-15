@@ -72,8 +72,9 @@ export default function DespesasPage() {
       try {
           const payload = {
               descricao: item.descricao_original,
-              valor: item.valor,
+              valor: Math.abs(Number(item.valor)),
               categoria_id: item.categoria_sugerida_id,
+              loja_id: activeLoja?.id || Number(localStorage.getItem('active_loja_id')) || 1,
               data_competencia: item.data_transacao,
               data_transacao: item.data_transacao,
               rateios: item.rateios.map((r: any) => ({

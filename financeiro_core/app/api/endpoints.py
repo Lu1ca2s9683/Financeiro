@@ -84,6 +84,11 @@ class CategoriaIn(Schema):
     grupo_contabil: str
     ativa: bool = True
 
+class RateioIn(Schema):
+    descricao: str
+    valor: Decimal
+    categoria_id: Optional[int] = None
+
 class CategoriaOut(Schema):
     id: int
     nome: str
@@ -116,47 +121,25 @@ class DespesaIn(Schema):
     categoria_id: int
     valor: Decimal
     data_competencia: date
-    data_vencimento: date
+    data_transacao: date
+    rateios: List[RateioIn] = []
     fornecedor_id: Optional[int] = None
 
 class DespesaOut(Schema):
     id: int
     descricao: str
     valor_liquido: Decimal
-    status: str
+    data_transacao: Optional[date] = None
     data_competencia: date
     categoria: CategoriaOut = None 
-    dias_para_vencimento: Optional[int] = None
-    is_vencendo: bool = False
-    is_atrasado: bool = False
 
-    @staticmethod
-    def resolve_dias_para_vencimento(obj):
-        if obj.status == 'PAGO':
-            return None
-        return (obj.data_vencimento - date.today()).days
-
-    @staticmethod
-    def resolve_is_vencendo(obj):
-        if obj.status == 'PAGO':
-            return False
-        dias = (obj.data_vencimento - date.today()).days
-        return 0 <= dias <= 7
-
-    @staticmethod
-    def resolve_is_atrasado(obj):
-        if obj.status == 'PAGO':
-            return False
-        # Se o status já é ATRASADO ou se venceu e não está pago
-        if obj.status == 'ATRASADO':
-            return True
-        return obj.data_vencimento < date.today()
 
 class DespesaDetailOut(DespesaOut):
     valor_bruto: Decimal
     valor_desconto: Decimal
     valor_acrescimo: Decimal
-    data_vencimento: date
+    data_transacao: date
+    rateios: List[RateioIn] = []
     fornecedor_id: Optional[int] = None
     loja_id_externo: int
 
@@ -218,7 +201,7 @@ class FechamentoOut(Schema):
     despesas_financeiras: Decimal = Decimal('0.00')
     lucro_liquido: Decimal
 
-    status: str
+    data_transacao: Optional[date] = None
 
     class Config:
         from_attributes = True 
