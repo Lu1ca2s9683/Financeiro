@@ -124,7 +124,11 @@ export default function DespesasPage() {
                             });
 
                             if (res.ok) {
-                                alert('Extrato importado com sucesso!');
+                                const extratoTransacoes = await res.json();
+                                const saidas = extratoTransacoes.filter((t: any) => t.tipo === 'SAIDA');
+                                alert(`Extrato importado com sucesso! Encontradas ${saidas.length} saídas.`);
+                                // Idealmente preencher um modal ou estado, mas como a página não tem visual para extratos...
+                                // window.location.reload();
                                 window.location.reload();
                             } else {
                                 const errorData = await res.json();

@@ -1,15 +1,19 @@
-'use client';
-import { useState, useMemo } from 'react';
-import { UploadCloud, CheckCircle, XCircle } from 'lucide-react';
-import { api, ExtratoItem } from '@/services/api';
+import sys
+
+filepath = './financeiro-frontend/src/app/relatorios/conferencia/page.tsx'
+with open(filepath, 'w') as f:
+    f.write('''\'use client\';
+import { useState, useMemo } from \'react\';
+import { UploadCloud, CheckCircle, XCircle } from \'lucide-react\';
+import { api, ExtratoItem } from \'@/services/api\';
 
 export default function ConferenciaPage() {
     const [file, setFile] = useState<File | null>(null);
     const [extrato, setExtrato] = useState<ExtratoItem[]>([]);
     const [loading, setLoading] = useState(false);
     const [vendasMock, setVendasMock] = useState<any[]>([
-        { id: 1, data: '2024-01-10', valor: 1500.00, descricao: 'Venda de produtos A' },
-        { id: 2, data: '2024-01-15', valor: 300.00, descricao: 'Serviço prestado B' }
+        { id: 1, data: \'2024-01-10\', valor: 1500.00, descricao: \'Venda de produtos A\' },
+        { id: 2, data: \'2024-01-15\', valor: 300.00, descricao: \'Serviço prestado B\' }
     ]);
 
     const handleImport = async () => {
@@ -17,15 +21,15 @@ export default function ConferenciaPage() {
         setLoading(true);
         try {
             const formData = new FormData();
-            formData.append('file', file);
+            formData.append(\'file\', file);
 
-            const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-            const lojaId = typeof window !== 'undefined' ? localStorage.getItem('active_loja_id') || '1' : '1';
+            const token = typeof window !== \'undefined\' ? localStorage.getItem(\'token\') : null;
+            const lojaId = typeof window !== \'undefined\' ? localStorage.getItem(\'active_loja_id\') || \'1\' : \'1\';
 
             const res = await fetch(`http://localhost:8000/api/financeiro/extrato/importar/${lojaId}`, {
-                method: 'POST',
+                method: \'POST\',
                 headers: {
-                    'Authorization': `Bearer ${token}`
+                    \'Authorization\': `Bearer ${token}`
                 },
                 body: formData
             });
@@ -33,7 +37,7 @@ export default function ConferenciaPage() {
             if (res.ok) {
                 const data = await res.json();
                 // Regra de Negócio: Mostrar apenas ENTRADAS na tela de conferência
-                setExtrato(data.filter((item: any) => item.tipo === 'ENTRADA'));
+                setExtrato(data.filter((item: any) => item.tipo === \'ENTRADA\'));
             } else {
                 alert("Erro ao importar arquivo");
             }
@@ -64,21 +68,21 @@ export default function ConferenciaPage() {
                 <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
                     <span className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-1">Entradas na Conta (Extrato)</span>
                     <span className="text-3xl font-bold text-emerald-600 font-mono">
-                        {totalEntradasExtrato.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        {totalEntradasExtrato.toLocaleString(\'pt-BR\', { style: \'currency\', currency: \'BRL\' })}
                     </span>
                 </div>
 
                 <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
                     <span className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-1">Vendas no Sistema</span>
                     <span className="text-3xl font-bold text-blue-600 font-mono">
-                        {totalVendasSistema.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        {totalVendasSistema.toLocaleString(\'pt-BR\', { style: \'currency\', currency: \'BRL\' })}
                     </span>
                 </div>
 
-                <div className={`p-6 rounded-xl border shadow-sm flex flex-col justify-center ${diferenca >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
-                    <span className={`text-sm font-semibold uppercase tracking-wider mb-1 ${diferenca >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>Diferença (Consolidação)</span>
-                    <span className={`text-3xl font-bold font-mono ${diferenca >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                        {diferenca > 0 ? '+' : ''}{diferenca.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                <div className={`p-6 rounded-xl border shadow-sm flex flex-col justify-center ${diferenca >= 0 ? \'bg-emerald-50 border-emerald-200\' : \'bg-rose-50 border-rose-200\'}`}>
+                    <span className={`text-sm font-semibold uppercase tracking-wider mb-1 ${diferenca >= 0 ? \'text-emerald-700\' : \'text-rose-700\'}`}>Diferença (Consolidação)</span>
+                    <span className={`text-3xl font-bold font-mono ${diferenca >= 0 ? \'text-emerald-700\' : \'text-rose-700\'}`}>
+                        {diferenca > 0 ? \'+\' : \'\'}{diferenca.toLocaleString(\'pt-BR\', { style: \'currency\', currency: \'BRL\' })}
                     </span>
                 </div>
             </div>
@@ -95,7 +99,7 @@ export default function ConferenciaPage() {
                     disabled={!file || loading}
                     className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 hover:bg-indigo-700 transition disabled:opacity-50"
                 >
-                    <UploadCloud size={18} /> {loading ? 'Lendo...' : 'Ler Extrato'}
+                    <UploadCloud size={18} /> {loading ? \'Lendo...\' : \'Ler Extrato\'}
                 </button>
             </div>
 
@@ -116,7 +120,7 @@ export default function ConferenciaPage() {
                                         <div className="text-sm font-medium text-slate-800">{item.descricao_original}</div>
                                     </div>
                                     <div className="font-mono font-bold text-emerald-600">
-                                        + {Number(item.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                        + {Number(item.valor).toLocaleString(\'pt-BR\', { style: \'currency\', currency: \'BRL\' })}
                                     </div>
                                 </div>
                             ))
@@ -138,7 +142,7 @@ export default function ConferenciaPage() {
                                     <div className="text-sm font-medium text-emerald-900">{venda.descricao}</div>
                                 </div>
                                 <div className="font-mono font-bold text-emerald-700">
-                                    {Number(venda.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                    {Number(venda.valor).toLocaleString(\'pt-BR\', { style: \'currency\', currency: \'BRL\' })}
                                 </div>
                             </div>
                         ))}
@@ -148,3 +152,5 @@ export default function ConferenciaPage() {
         </main>
     );
 }
+''')
+print("Conferência page fixed and updated with Balance panel")
