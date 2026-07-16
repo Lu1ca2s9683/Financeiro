@@ -1,10 +1,12 @@
 'use client';
 
 import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
-import { useFinanceiro } from '@/contexts/FinanceiroContext';
+import { useDateFilter } from '@/contexts/DateFilterContext';
 
 export function PeriodSelector() {
-  const { mes, setMes, ano, setAno, periodoFormatado } = useFinanceiro();
+  const { mes, setMes, ano, setAno } = useDateFilter();
+  const nomeMeses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+  const periodoFormatado = `${nomeMeses[mes - 1]} de ${ano}`;
 
   const handlePreviousMonth = () => {
     if (mes === 1) {
