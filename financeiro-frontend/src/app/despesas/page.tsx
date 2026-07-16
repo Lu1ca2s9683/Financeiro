@@ -19,6 +19,7 @@ export default function DespesasPage() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [splits, setSplits] = useState<any[]>([]);
   const [totalMes, setTotalMes] = useState(0);
+  
   // Estado para extrato importado pendente de categorização
   const [importedDespesas, setImportedDespesas] = useState<any[]>([]);
   const [categoriasPendentes, setCategoriasPendentes] = useState<any[]>([]);
@@ -72,9 +73,8 @@ export default function DespesasPage() {
       try {
           const payload = {
               descricao: item.descricao_original,
-              valor: Math.abs(Number(item.valor)),
+              valor: item.valor,
               categoria_id: item.categoria_sugerida_id,
-              loja_id: activeLoja?.id || Number(localStorage.getItem('active_loja_id')) || 1,
               data_competencia: item.data_transacao,
               data_transacao: item.data_transacao,
               rateios: item.rateios.map((r: any) => ({
@@ -166,10 +166,39 @@ export default function DespesasPage() {
                      const file = e.target.files?.[0];
                      if (file) {
                         try {
-                            const lojaId = activeLoja?.id || (typeof window !== 'undefined' ? localStorage.getItem('active_loja_id') : '1') || '1';
-                            const extratoTransacoes = await api.importarExtratoDespesas(lojaId, file);
-                            setImportedDespesas(extratoTransacoes.map((t: any, idx: number) => ({ ...t, _tempId: idx, expanded: false, rateios: [] })));
-                            alert(`Extrato lido com sucesso! ${extratoTransacoes.length} saídas aguardam categorização.`);
+                            // Prevenir importação sem loja selecionada
+                            if (!activeLoja?.id) {
+                                alert("Erro: Selecione uma loja antes de importar o extrato.");
+                                return;
+                            }
+
+                            const formData = new FormData();
+                            formData.append('file', file);
+
+                            // Recuperar token com fallback para diferentes chaves comuns
+                            const token = typeof window !== 'undefined' ? (localStorage.getItem('token') || localStorage.getItem('access_token')) : null;
+                            
+                            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://financeiro-backend-2isx.onrender.com/api/financeiro';
+
+                            // CORREÇÕES ESTRATÉGICAS:
+                            // 1. Usar activeLoja.id em vez de tentar ler do localStorage cegamente (evita erro de permissão da loja 1).
+                            // 2. Adicionada a barra "/" no final do URL. O Django redireciona sem a barra, perdendo o Header de Auth (causando 401).
+                            const res = await fetch(`${apiUrl}/extrato/importar-despesas/${activeLoja.id}/`, {
+                                method: 'POST',
+                                headers: {
+                                    'Authorization': `Bearer ${token}`
+                                },
+                                body: formData
+                            });
+
+                            if (res.ok) {
+                                const extratoTransacoes = await res.json();
+                                setImportedDespesas(extratoTransacoes.map((t: any, idx: number) => ({ ...t, _tempId: idx, expanded: false, rateios: [] })));
+                                alert(`Extrato lido com sucesso! ${extratoTransacoes.length} saídas aguardam categorização.`);
+                            } else {
+                                const errorData = await res.json().catch(() => ({ detail: 'Erro interno do servidor.' }));
+                                alert('Erro ao importar extrato: ' + (errorData.detail || 'Erro desconhecido. Verifique permissões.'));
+                            }
                         } catch (error) {
                             console.error('Erro na importação:', error);
                             alert('Erro de conexão ao tentar importar extrato.');
@@ -302,6 +331,64 @@ export default function DespesasPage() {
               </div>
           </div>
       )}
+
+      {/* Tabela Principal de Despesas Salvas */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
+          <h2 className="text-lg font-bold text-slate-800">Despesas Registradas</h2>
+          <div className="text-sm font-semibold text-slate-600">
+            Total: {totalMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-white border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider">
+                <th className="p-4 font-semibold">Data</th>
+                <th className="p-4 font-semibold">Descrição</th>
+                <th className="p-4 font-semibold">Categoria</th>
+                <th className="p-4 font-semibold text-right">Valor</th>
+                <th className="p-4 font-semibold text-center">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {loading ? (
+                <tr>
+                  <td colSpan={5} className="p-8 text-center text-slate-500 animate-pulse">
+                    Carregando despesas...
+                  </td>
+                </tr>
+              ) : despesas.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="p-8 text-center text-slate-500">
+                    Nenhuma despesa encontrada para este período.
+                  </td>
+                </tr>
+              ) : (
+                despesas.map(d => (
+                  <tr key={d.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="p-4 text-sm text-slate-600">{d.data_transacao}</td>
+                    <td className="p-4 text-sm font-medium text-slate-900">{d.descricao}</td>
+                    <td className="p-4 text-sm text-slate-600">{d.categoria_nome || 'Sem Categoria'}</td>
+                    <td className="p-4 text-sm font-bold text-rose-600 text-right">
+                      - {Number(d.valor_liquido || d.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </td>
+                    <td className="p-4 text-center">
+                      <button 
+                        onClick={() => excluir(d.id)} 
+                        className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors" 
+                        title="Excluir"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
     </main>
   );
