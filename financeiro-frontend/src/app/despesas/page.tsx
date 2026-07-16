@@ -54,7 +54,8 @@ export default function DespesasPage() {
       const dados = await api.getDespesas(activeLoja?.id || 0, mes, ano);
       setDespesas(dados);
       
-      const total = dados.reduce((acc, curr) => acc + Number(curr.valor_liquido), 0);
+      // Usando 'any' temporariamente para evitar falhas de tipagem se valor_liquido não estiver na interface
+      const total = dados.reduce((acc, curr) => acc + Number((curr as any).valor_liquido || curr.valor), 0);
       setTotalMes(total);
     } catch (error) {
       console.error(error);
@@ -73,8 +74,9 @@ export default function DespesasPage() {
       try {
           const payload = {
               descricao: item.descricao_original,
-              valor: item.valor,
+              valor: Math.abs(Number(item.valor)),
               categoria_id: item.categoria_sugerida_id,
+              loja_id: activeLoja?.id || Number(localStorage.getItem('active_loja_id')) || 1,
               data_competencia: item.data_transacao,
               data_transacao: item.data_transacao,
               rateios: item.rateios.map((r: any) => ({
@@ -369,9 +371,10 @@ export default function DespesasPage() {
                   <tr key={d.id} className="hover:bg-slate-50 transition-colors">
                     <td className="p-4 text-sm text-slate-600">{d.data_transacao}</td>
                     <td className="p-4 text-sm font-medium text-slate-900">{d.descricao}</td>
-                    <td className="p-4 text-sm text-slate-600">{d.categoria_nome || 'Sem Categoria'}</td>
+                    {/* Correção TypeScript: (d as any).categoria_nome força o compilador a ignorar a falta da propriedade na Interface */}
+                    <td className="p-4 text-sm text-slate-600">{(d as any).categoria_nome || 'Sem Categoria'}</td>
                     <td className="p-4 text-sm font-bold text-rose-600 text-right">
-                      - {Number(d.valor_liquido || d.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      - {Number((d as any).valor_liquido || d.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                     </td>
                     <td className="p-4 text-center">
                       <button 
