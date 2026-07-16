@@ -59,8 +59,8 @@ class DjangoRepositorioDespesas:
         from django.db.models import Sum
         val = ContaPagar.objects.filter(
             loja_id_externo=loja_id, 
-            data_competencia__month=mes, 
-            data_competencia__year=ano
+            data_transacao__month=mes,
+            data_transacao__year=ano
         ).aggregate(Sum('valor_liquido'))['valor_liquido__sum']
         return val or Decimal('0.00')
 
@@ -69,7 +69,7 @@ class DjangoRepositorioDespesas:
         qs = ContaPagar.objects.filter(
             loja_id_externo=loja_id,
             data_competencia__month=mes,
-            data_competencia__year=ano
+            data_transacao__year=ano
         ).values('categoria__grupo_contabil').annotate(total=Sum('valor_liquido'))
 
         return {item['categoria__grupo_contabil']: item['total'] for item in qs if item['categoria__grupo_contabil']}
@@ -390,7 +390,7 @@ def listar_despesas(
     qs = ContaPagar.objects.filter(loja_id_externo=active_loja_id).select_related('categoria')
     
     if mes and ano:
-        qs = qs.filter(data_competencia__month=mes, data_competencia__year=ano)
+        qs = qs.filter(data_transacao__month=mes, data_transacao__year=ano)
         
     return qs
 
