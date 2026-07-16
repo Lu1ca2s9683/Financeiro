@@ -269,6 +269,14 @@ def listar_contas(request):
 
     return ContaBancaria.objects.filter(loja_id_externo=active_loja_id, ativo=True)
 
+@router.get("/contas/", response=List[ContaBancariaOut])
+def listar_contas(request):
+    """Lista as contas bancárias da loja ativa."""
+    active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
+    if not active_loja_id:
+        raise HttpError(400, "Nenhuma loja ativa no contexto")
+    return ContaBancaria.objects.filter(loja_id_externo=active_loja_id, ativo=True)
+
 @router.post("/contas/", response=ContaBancariaOut, auth=AuthBearer())
 def criar_conta(request, payload: ContaBancariaIn):
     """Cria uma nova conta ou caixa físico para a loja ativa."""
