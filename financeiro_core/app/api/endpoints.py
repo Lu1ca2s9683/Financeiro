@@ -174,7 +174,7 @@ class DashboardResumoOut(Schema):
     percentual_pago: float
     percentual_atrasado: float
     percentual_previsto: float
-    total_despesas_mes: int
+    total_despesas_mes: float
     despesas_vencendo_semana: int
     despesas_atrasadas: int
     saude_financeira: str  # 'SAUDAVEL', 'ATENCAO', 'CRITICO'

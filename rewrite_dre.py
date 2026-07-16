@@ -1,4 +1,6 @@
-'use client';
+import sys
+
+content = """'use client';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/services/api';
@@ -133,3 +135,7 @@ export default function DreGerencialPage() {
         </main>
     );
 }
+"""
+filepath = './financeiro-frontend/src/app/relatorios/dre/page.tsx'
+with open(filepath, 'w') as f:
+    f.write(content)
