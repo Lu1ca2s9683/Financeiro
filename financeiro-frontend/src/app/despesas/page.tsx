@@ -54,8 +54,8 @@ export default function DespesasPage() {
       const dados = await api.getDespesas(activeLoja?.id || 0, mes, ano);
       setDespesas(dados);
       
-      // Usando 'any' temporariamente para evitar falhas de tipagem se valor_liquido não estiver na interface
-      const total = dados.reduce((acc, curr) => acc + Number((curr as any).valor_liquido || curr.valor), 0);
+      // Correção TypeScript: 'curr: any' ignora a verificação estrita para esta operação matemática
+      const total = dados.reduce((acc, curr: any) => acc + Number(curr.valor_liquido || curr.valor), 0);
       setTotalMes(total);
     } catch (error) {
       console.error(error);
@@ -374,7 +374,7 @@ export default function DespesasPage() {
                     {/* Correção TypeScript: (d as any).categoria_nome força o compilador a ignorar a falta da propriedade na Interface */}
                     <td className="p-4 text-sm text-slate-600">{(d as any).categoria_nome || 'Sem Categoria'}</td>
                     <td className="p-4 text-sm font-bold text-rose-600 text-right">
-                      - {Number((d as any).valor_liquido || d.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      - {Number((d as any).valor_liquido || (d as any).valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                     </td>
                     <td className="p-4 text-center">
                       <button 
