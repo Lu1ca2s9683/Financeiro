@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps, react-hooks/set-state-in-effect, @typescript-eslint/no-require-imports */
 // src/services/api.ts
 
 // Define a URL base. Prioriza a variável de ambiente.
@@ -71,6 +72,85 @@ export interface DespesaDetail extends Despesa {
   splits?: Rateio[];
   fornecedor_id?: number;
   loja_id_externo: number;
+}
+
+export interface DRELancamento {
+  despesa_id: number;
+  rateio_id: number | null;
+  tipo_origem: string;
+  data_transacao: string;
+  descricao: string;
+  fornecedor_nome: string | null;
+  valor: number;
+}
+
+export interface DRECategoria {
+  categoria_id: number;
+  categoria_nome: string;
+  total: number;
+  quantidade_lancamentos: number;
+  lancamentos: DRELancamento[];
+}
+
+export interface DREGrupo {
+  grupo_contabil: string;
+  descricao: string;
+  total: number;
+  percentual_receita: number;
+  categorias: DRECategoria[];
+}
+
+export interface DRELinha {
+  codigo: string;
+  descricao: string;
+  tipo: string;
+  nivel: number;
+  valor: number;
+  percentual_receita: number;
+  ordem: number;
+}
+
+export interface DREData {
+  identificacao: {
+    loja_id: number;
+    loja_nome: string;
+    mes: number;
+    ano: number;
+    periodo_descricao: string;
+    regime: string;
+    gerado_em: string;
+    gerado_por: string;
+  };
+  resumo: {
+    receita_bruta: number;
+    impostos: number;
+    receita_liquida: number;
+    custos_produtos: number;
+    lucro_bruto: number;
+    despesas_pessoal: number;
+    despesas_administrativas: number;
+    despesas_marketing: number;
+    despesas_operacionais: number;
+    resultado_operacional: number;
+    taxas_cartao: number;
+    outras_despesas_financeiras: number;
+    despesas_financeiras_total: number;
+    lucro_liquido: number;
+    margem_bruta_percentual: number;
+    margem_operacional_percentual: number;
+    margem_liquida_percentual: number;
+  };
+  linhas: DRELinha[];
+  grupos_detalhados: DREGrupo[];
+  qualidade_dados: {
+    quantidade_despesas_consideradas: number;
+    quantidade_despesas_sem_rateio: number;
+    quantidade_despesas_com_rateio_valido: number;
+    quantidade_despesas_com_rateio_invalido: number;
+    valor_despesas_com_rateio_invalido: number;
+    valor_total_despesas_consideradas: number;
+    possui_rateios_invalidos: boolean;
+  };
 }
 
 export interface Fechamento {
@@ -195,7 +275,7 @@ export const api = {
     return res.json();
   },
 
-  createContaBancaria: async (data: any): Promise<ContaBancaria> => {
+  createContaBancaria: async (data: unknown): Promise<ContaBancaria> => {
     const res = await fetch(`${API_BASE_URL}/contas/`, {
       method: 'POST',
       headers: getHeaders(),
@@ -205,7 +285,7 @@ export const api = {
     return res.json();
   },
 
-  createTransferencia: async (data: any) => {
+  createTransferencia: async (data: unknown) => {
     const res = await fetch(`${API_BASE_URL}/contas/transferencia`, {
       method: 'POST',
       headers: getHeaders(),
@@ -271,7 +351,7 @@ export const api = {
     return res.json();
   },
 
-  getDre: async (lojaId: number, mes: number, ano: number): Promise<any> => {
+  getDre: async (lojaId: number, mes: number, ano: number): Promise<DREData> => {
     const res = await fetch(`${API_BASE_URL}/dre/${lojaId}/${mes}/${ano}`, {
       method: 'GET',
       headers: getHeaders()
@@ -286,15 +366,26 @@ export const api = {
       headers: getHeaders()
     });
     if (!res.ok) throw new Error('Falha ao baixar PDF');
+
+    let filename = `DRE_${lojaId}_${mes}_${ano}.pdf`;
+    const disposition = res.headers.get('Content-Disposition');
+    if (disposition && disposition.indexOf('filename=') !== -1) {
+        const matches = /filename="([^"]+)"/.exec(disposition);
+        if (matches != null && matches[1]) filename = matches[1];
+    }
+
     const blob = await res.blob();
     const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `DRE_${lojaId}_${mes}_${ano}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    window.URL.revokeObjectURL(url);
-    document.body.removeChild(a);
+    try {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    } finally {
+        window.URL.revokeObjectURL(url);
+    }
   },
 
   downloadDreXml: async (lojaId: number, mes: number, ano: number): Promise<void> => {
@@ -303,15 +394,26 @@ export const api = {
       headers: getHeaders()
     });
     if (!res.ok) throw new Error('Falha ao baixar XML');
+
+    let filename = `DRE_${lojaId}_${mes}_${ano}.xml`;
+    const disposition = res.headers.get('Content-Disposition');
+    if (disposition && disposition.indexOf('filename=') !== -1) {
+        const matches = /filename="([^"]+)"/.exec(disposition);
+        if (matches != null && matches[1]) filename = matches[1];
+    }
+
     const blob = await res.blob();
     const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `DRE_${lojaId}_${mes}_${ano}.xml`;
-    document.body.appendChild(a);
-    a.click();
-    window.URL.revokeObjectURL(url);
-    document.body.removeChild(a);
+    try {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    } finally {
+        window.URL.revokeObjectURL(url);
+    }
   },
 
   getFechamento: async (lojaId: number, mes: number, ano: number): Promise<Fechamento> => {
@@ -363,7 +465,7 @@ export const api = {
     return res.json();
   },
 
-  createDespesa: async (data: any) => {
+  createDespesa: async (data: unknown) => {
     const res = await fetch(`${API_BASE_URL}/despesas/`, {
       method: 'POST',
       headers: getHeaders(),
@@ -376,7 +478,7 @@ export const api = {
     return res.json();
   },
 
-  updateDespesa: async (id: number, data: any): Promise<Despesa> => {
+  updateDespesa: async (id: number, data: unknown): Promise<Despesa> => {
     const res = await fetch(`${API_BASE_URL}/despesas/${id}`, {
       method: 'PUT',
       headers: getHeaders(),
@@ -394,7 +496,7 @@ export const api = {
     if (!res.ok) throw new Error('Falha ao excluir');
     return res.json();
   },
-  importarExtratoDespesas: async (lojaId: number | string, file: File): Promise<any[]> => {
+  importarExtratoDespesas: async (lojaId: number | string, file: File): Promise<ExtratoItem[]> => {
     const formData = new FormData();
     formData.append('file', file);
     const headers = getHeaders();

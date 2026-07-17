@@ -39,9 +39,13 @@ class DREPDFGenerator:
         elements.append(Paragraph("Resumo Executivo", heading_style))
 
         def format_currency(val):
+            if val is None: val = 0
+
             return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
         def format_perc(val):
+            if val is None: val = 0
+
             return f"{float(val):.2f}%"
 
         resumo_data = [

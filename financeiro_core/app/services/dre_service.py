@@ -6,16 +6,12 @@ from typing import Dict, Any, List
 # Imports das regras de domínio e infraestrutura existentes
 from financeiro_core.domain.services import CalculadoraFinanceira
 from financeiro_core.infrastructure.vendas_client import VendasClientSQL, VendasAPIClientMock
-from financeiro_core.app.api.endpoints import DjangoRepositorioTaxas
+from financeiro_core.app.services.dre_repositories import DjangoRepositorioTaxas
 from financeiro_core.app.models.entidades import ContaPagar
 
 class DREService:
     def __init__(self, vendas_client=None, repositorio_taxas=None):
-        try:
-            self.vendas_client = vendas_client or VendasClientSQL()
-        except Exception:
-            # Fallback seguro mas verboso
-            self.vendas_client = VendasAPIClientMock()
+        self.vendas_client = vendas_client or VendasClientSQL()
 
         self.repositorio_taxas = repositorio_taxas or DjangoRepositorioTaxas()
 
@@ -35,15 +31,15 @@ class DREService:
         # 1. Consulta Vendas Base e Taxas de Cartão
         try:
             dados_vendas_api = self.vendas_client.get_faturamento_por_loja(loja_id, mes, ano)
-        except Exception:
-            raise Exception("Falha ao obter faturamento. O banco de vendas está indisponível.")
+        except Exception as e:
+            raise Exception(f"Falha ao obter faturamento. O banco de vendas está indisponível. Detalhe: {str(e)}")
 
         vendas = CalculadoraFinanceira.calcular_liquido_vendas(
             dados_vendas_api, self.repositorio_taxas, loja_id
         )
 
-        faturamento_bruto = self._round(vendas['total_bruto'])
-        taxas_cartao = self._round(vendas['total_taxas'])
+        faturamento_bruto = vendas['total_bruto']
+        taxas_cartao = vendas['total_taxas']
 
         # 2. Obter e Processar Despesas com lógica de Splits
         despesas_qs = ContaPagar.objects.filter(
@@ -73,7 +69,7 @@ class DREService:
         valor_total_consideradas = Decimal('0.00')
 
         for despesa in despesas_qs:
-            valor_liq = self._round(despesa.valor_liquido)
+            valor_liq = despesa.valor_liquido
             splits = list(despesa.splits.all())
 
             qtd_consideradas += 1
@@ -102,13 +98,13 @@ class DREService:
                     valor_liq
                 )
             else:
-                soma_splits = sum([self._round(s.valor) for s in splits])
+                soma_splits = sum([s.valor for s in splits])
 
                 if abs(soma_splits - valor_liq) <= Decimal('0.01'):
                     # Regra B: Splits Válidos
                     qtd_rateio_valido += 1
                     for split in splits:
-                        v_split = self._round(split.valor)
+                        v_split = split.valor
 
                         # Fallback seguro para categoria
                         cat = split.categoria if split.categoria else despesa.categoria

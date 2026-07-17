@@ -163,3 +163,82 @@ class DespesasApiTest(TestCase):
 
         self.assertGreaterEqual(data['despesas_atrasadas'], 1)
         self.assertGreaterEqual(data['despesas_vencendo_semana'], 1)
+
+    def test_get_dre_no_side_effects(self):
+        # 15. GET do DRE não cria FechamentoMensal.
+        # 16. GET do DRE não modifica FechamentoMensal existente.
+        from financeiro_core.models import FechamentoMensal
+
+        count_before = FechamentoMensal.objects.count()
+        response = self.client.get(f"/dre/{self.loja_id}/{self.mes_aberto}/{self.ano_aberto}", headers=self.auth_headers)
+        self.assertEqual(response.status_code, 200)
+
+        count_after = FechamentoMensal.objects.count()
+        self.assertEqual(count_before, count_after)
+
+    def test_post_fechamento_preserves_status(self):
+        # 5. POST preserva status CONCLUIDO.
+        from financeiro_core.models import FechamentoMensal
+
+        fechamento = FechamentoMensal.objects.get(loja_id_externo=self.loja_id, mes=self.mes_fechado, ano=self.ano_fechado)
+        self.assertEqual(fechamento.status, 'CONCLUIDO')
+
+        response = self.client.post(f"/fechamento/calcular/{self.loja_id}/{self.mes_fechado}/{self.ano_fechado}", headers=self.auth_headers)
+        self.assertEqual(response.status_code, 200)
+
+        fechamento.refresh_from_db()
+        self.assertEqual(fechamento.status, 'CONCLUIDO')
+
+    def test_dre_json_structure(self):
+        response = self.client.get(f"/dre/{self.loja_id}/{self.mes_aberto}/{self.ano_aberto}", headers=self.auth_headers)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+
+        # 7. Nome real da loja aparece no JSON.
+        self.assertEqual(data['identificacao']['loja_nome'], f"Loja {self.loja_id}")
+        self.assertEqual(data['identificacao']['regime'], "CAIXA")
+
+        # Tem qualidade de dados
+        self.assertIn('qualidade_dados', data)
+        self.assertIn('resumo', data)
+        self.assertIn('grupos_detalhados', data)
+
+    def test_invalid_store_returns_403(self):
+        # 13. loja fora do contexto retorna 403.
+        import datetime, jwt
+        SECRET_KEY = "django-insecure-chave-dev-local"
+        payload = {"user_id": self.user.id, "active_loja_id": 999, "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)}
+        token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        response = self.client.get(f"/dre/1/{self.mes_aberto}/{self.ano_aberto}", headers=headers)
+        self.assertEqual(response.status_code, 403)
+
+    def test_invalid_month_returns_400(self):
+        # 19. Mês inválido recebe 400.
+        response = self.client.get(f"/dre/{self.loja_id}/13/{self.ano_aberto}", headers=self.auth_headers)
+        self.assertEqual(response.status_code, 400)
+
+    def test_pdf_export(self):
+        # 20. PDF retorna 200.
+        # 21. PDF retorna application/pdf.
+        # 23. PDF possui Content-Disposition.
+        response = self.client.get(f"/dre/{self.loja_id}/{self.mes_aberto}/{self.ano_aberto}/pdf", headers=self.auth_headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertIn('attachment; filename="DRE_', response['Content-Disposition'])
+
+    def test_xml_export(self):
+        # 24. XML retorna 200.
+        # 25. XML retorna application/xml.
+        # 26. XML pode ser lido pelo ElementTree.
+        # 27. XML possui versao="1.0".
+        import xml.etree.ElementTree as ET
+        response = self.client.get(f"/dre/{self.loja_id}/{self.mes_aberto}/{self.ano_aberto}/xml", headers=self.auth_headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/xml; charset=utf-8')
+
+        root = ET.fromstring(response.content)
+        self.assertEqual(root.tag, 'dre')
+        self.assertEqual(root.attrib.get('versao'), '1.0')
+        self.assertEqual(root.attrib.get('regime'), 'CAIXA')
