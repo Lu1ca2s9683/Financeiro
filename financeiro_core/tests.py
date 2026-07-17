@@ -76,9 +76,11 @@ class DespesasApiTest(TestCase):
         self.assertEqual(float(data['valor_bruto']), 100.0)
 
     def test_update_status_open_month(self):
+        pass
         # self.client.patch(f"/despesas/{self.despesa_aberta.id}/status", json={"status": "PAGO"}, headers=self.auth_headers)
 
     def test_update_status_closed_month(self):
+        pass
         # self.client.patch(f"/despesas/{self.despesa_fechada.id}/status", json={"status": "CANCELADO"}, headers=self.auth_headers)
 
     def test_edit_despesa_open_month(self):
