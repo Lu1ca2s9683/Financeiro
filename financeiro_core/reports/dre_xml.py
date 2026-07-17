@@ -59,10 +59,18 @@ class DREXMLGenerator:
 
                 lancamentos = ET.SubElement(categoria, "lancamentos")
                 for lanc_data in c_data.get("lancamentos", []):
-                    lancamento = ET.SubElement(lancamentos, "lancamento",
-                        despesa_id=str(lanc_data.get("despesa_id", "")),
-                        tipo_origem=lanc_data.get("tipo_origem", "")
-                    )
+                    rateio_id = lanc_data.get("rateio_id")
+                    if rateio_id:
+                        lancamento = ET.SubElement(lancamentos, "lancamento",
+                            despesa_id=str(lanc_data.get("despesa_id", "")),
+                            rateio_id=str(rateio_id),
+                            tipo_origem=lanc_data.get("tipo_origem", "")
+                        )
+                    else:
+                        lancamento = ET.SubElement(lancamentos, "lancamento",
+                            despesa_id=str(lanc_data.get("despesa_id", "")),
+                            tipo_origem=lanc_data.get("tipo_origem", "")
+                        )
                     ET.SubElement(lancamento, "data_transacao").text = lanc_data.get("data_transacao", "")
                     ET.SubElement(lancamento, "descricao").text = lanc_data.get("descricao", "")
                     fornec = lanc_data.get("fornecedor_nome")

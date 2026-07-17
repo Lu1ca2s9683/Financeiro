@@ -1,4 +1,16 @@
 from ninja import Router, Schema, Field
+from financeiro_core.app.services.dre_repositories import DjangoRepositorioTaxas, DjangoRepositorioDespesas
+
+class DashboardResumoOut(Schema):
+    percentual_pago: float
+    percentual_atrasado: float
+    percentual_previsto: float
+    total_despesas_mes: float
+    despesas_vencendo_semana: int
+    despesas_atrasadas: int
+    saude_financeira: str
+    mensagem_assistente: str
+
 from ninja.errors import HttpError
 from typing import List, Optional
 from decimal import Decimal
@@ -52,165 +64,6 @@ class DjangoRepositorioTaxas:
         if taxa:
             return type('TaxaDTO', (), {'percentual': taxa.taxa_percentual, 'valor_fixo': taxa.taxa_fixa})
         return None
-
-class DjangoRepositorioDespesas:
-    """Soma despesas para o fechamento."""
-    def somar_despesas_competencia(self, loja_id, mes, ano):
-        from django.db.models import Sum
-        val = ContaPagar.objects.filter(
-            loja_id_externo=loja_id, 
-            data_transacao__month=mes,
-            data_transacao__year=ano
-        ).aggregate(Sum('valor_liquido'))['valor_liquido__sum']
-        return val or Decimal('0.00')
-
-    def agrupar_despesas_por_grupo_contabil(self, loja_id, mes, ano):
-        from django.db.models import Sum
-        qs = ContaPagar.objects.filter(
-            loja_id_externo=loja_id,
-            data_competencia__month=mes,
-            data_transacao__year=ano
-        ).values('categoria__grupo_contabil').annotate(total=Sum('valor_liquido'))
-
-        return {item['categoria__grupo_contabil']: item['total'] for item in qs if item['categoria__grupo_contabil']}
-
-# ==============================================================================
-# 2. SCHEMAS (DATA TRANSFER OBJECTS)
-# ==============================================================================
-
-# --- Schemas de Categoria ---
-class CategoriaIn(Schema):
-    nome: str
-    grupo_contabil: str
-    ativa: bool = True
-
-class RateioIn(Schema):
-    descricao: str
-    valor: Decimal
-    categoria_id: Optional[int] = None
-
-class CategoriaOut(Schema):
-    id: int
-    nome: str
-    grupo_contabil: str
-    ativa: bool
-
-# --- Schemas de Taxas ---
-class TaxaItemOut(Schema):
-    tipo: str
-    bandeira: str
-    taxa_percentual: Decimal
-    dias_para_recebimento: int
-
-class PerfilTaxaOut(Schema):
-    id: int
-    nome: str
-    loja_id_externo: int
-    data_inicio_vigencia: date
-    ativo: bool
-    taxas: List[TaxaItemOut] = []
-
-    @staticmethod
-    def resolve_taxas(obj):
-        return list(obj.taxas.all())
-
-# --- Schemas de Despesa ---
-class DespesaIn(Schema):
-    descricao: str
-    loja_id: Optional[int] = None # Ignorado no backend, usado pelo contexto do token
-    categoria_id: int
-    valor: Decimal
-    data_competencia: date
-    data_transacao: date
-    rateios: List[RateioIn] = []
-    fornecedor_id: Optional[int] = None
-
-class DespesaOut(Schema):
-    id: int
-    descricao: str
-    valor_liquido: Decimal
-    data_transacao: Optional[date] = None
-    data_competencia: date
-    categoria: CategoriaOut = None 
-
-
-class DespesaDetailOut(DespesaOut):
-    valor_bruto: Decimal
-    valor_desconto: Decimal
-    valor_acrescimo: Decimal
-    data_transacao: date
-    rateios: List[RateioIn] = []
-    fornecedor_id: Optional[int] = None
-    loja_id_externo: int
-
-# --- Schemas de Conta Bancária ---
-class ContaBancariaIn(Schema):
-    nome: str
-    tipo: str
-    banco_codigo: Optional[str] = ""
-    agencia: Optional[str] = ""
-    conta: Optional[str] = ""
-    saldo_inicial: Decimal = Decimal('0.00')
-
-class ContaBancariaOut(Schema):
-    id: int
-    nome: str
-    tipo: str
-    banco_codigo: str
-    agencia: str
-    conta: str
-    saldo_inicial: Decimal
-    saldo_atual: Decimal
-    ativo: bool
-
-class TransferenciaIn(Schema):
-    conta_origem_id: int
-    conta_destino_id: int
-    valor: Decimal
-    data_ocorrencia: date
-    descricao: str
-
-class DashboardResumoOut(Schema):
-    percentual_pago: float
-    percentual_atrasado: float
-    percentual_previsto: float
-    total_despesas_mes: float
-    despesas_vencendo_semana: int
-    despesas_atrasadas: int
-    saude_financeira: str  # 'SAUDAVEL', 'ATENCAO', 'CRITICO'
-    mensagem_assistente: str
-
-# --- Schemas de Fechamento ---
-class FechamentoOut(Schema):
-    loja_id_externo: int  # Alterado para casar perfeitamente com o retorno e evitar ValidationError
-    mes: int
-    ano: int
-
-    receita_bruta: Decimal
-    total_dinheiro: Decimal = Decimal('0.00')
-    total_cartao: Decimal = Decimal('0.00')
-    total_pix: Decimal = Decimal('0.00')
-
-    impostos: Decimal = Decimal('0.00')
-    receita_liquida: Decimal
-    custos_produtos: Decimal = Decimal('0.00')
-    lucro_bruto: Decimal
-    despesas_operacionais: Decimal = Decimal('0.00')
-    resultado_operacional: Decimal
-    total_taxas: Decimal = Decimal('0.00')
-    despesas_financeiras: Decimal = Decimal('0.00')
-    lucro_liquido: Decimal
-
-    data_transacao: Optional[date] = None
-
-    class Config:
-        from_attributes = True 
-
-# ==============================================================================
-# 3. ENDPOINTS
-# ==============================================================================
-
-# --- DASHBOARD ---
 
 @router.get("/dashboard/resumo/{loja_id}/{mes}/{ano}", response=DashboardResumoOut)
 def obter_resumo_dashboard(request, loja_id: int, mes: int, ano: int):
@@ -269,13 +122,24 @@ def listar_contas(request):
 
     return ContaBancaria.objects.filter(loja_id_externo=active_loja_id, ativo=True)
 
-@router.get("/contas/", response=List[ContaBancariaOut])
-def listar_contas(request):
-    """Lista as contas bancárias da loja ativa."""
-    active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
-    if not active_loja_id:
-        raise HttpError(400, "Nenhuma loja ativa no contexto")
-    return ContaBancaria.objects.filter(loja_id_externo=active_loja_id, ativo=True)
+
+class ContaBancariaOut(Schema):
+    id: int
+    nome: str
+    tipo: str
+    banco_codigo: str
+    agencia: str
+    conta: str
+    saldo_atual: Decimal
+    ativo: bool
+
+class ContaBancariaIn(Schema):
+    nome: str
+    tipo: str
+    banco_codigo: str = ''
+    agencia: str = ''
+    conta: str = ''
+    saldo_inicial: Decimal = Decimal('0.00')
 
 @router.post("/contas/", response=ContaBancariaOut, auth=AuthBearer())
 def criar_conta(request, payload: ContaBancariaIn):
@@ -295,6 +159,13 @@ def criar_conta(request, payload: ContaBancariaIn):
         loja_id_externo=active_loja_id
     )
     return nova_conta
+
+class TransferenciaIn(Schema):
+    conta_origem_id: int
+    conta_destino_id: int
+    valor: Decimal
+    data: date
+    descricao: str
 
 @router.post("/contas/transferencia", auth=AuthBearer())
 def registrar_transferencia(request, payload: TransferenciaIn):
@@ -339,6 +210,22 @@ def registrar_transferencia(request, payload: TransferenciaIn):
 
 # --- CATEGORIAS (CRUD) ---
 
+    id: int
+    nome: str
+    grupo_contabil: str
+    ativa: bool
+
+class CategoriaOut(Schema):
+    id: int
+    nome: str
+    grupo_contabil: str
+    ativa: bool
+
+class CategoriaIn(Schema):
+    nome: str
+    grupo_contabil: str
+    ativa: bool = True
+
 @router.get("/categorias/", response=List[CategoriaOut], auth=AuthBearer())
 def listar_categorias(request):
     """Lista todas as categorias de despesa ativas."""
@@ -370,6 +257,25 @@ def excluir_categoria(request, categoria_id: int):
 
 # --- TAXAS DE CARTÃO ---
 
+class TaxaMaquininhaOut(Schema):
+    tipo: str
+    bandeira: str
+    taxa_percentual: Decimal
+    taxa_fixa: Decimal
+    dias_para_recebimento: int
+
+class PerfilTaxaOut(Schema):
+    id: int
+    nome: str
+    data_inicio_vigencia: date
+    ativo: bool
+    taxas: List[TaxaMaquininhaOut] = []
+
+class PerfilTaxaIn(Schema):
+    nome: str
+    data_inicio_vigencia: date
+    ativo: bool = True
+
 @router.get("/taxas/perfis/", response=List[PerfilTaxaOut])
 def listar_perfis_taxas(request, loja_id: Optional[int] = None):
     """Lista perfis de taxas, opcionalmente filtrando por loja."""
@@ -383,6 +289,40 @@ def listar_perfis_taxas(request, loja_id: Optional[int] = None):
 
 # --- DESPESAS (CRUD) ---
 
+class RateioIn(Schema):
+    descricao: str
+    valor: Decimal
+    categoria_id: Optional[int] = None
+
+class DespesaIn(Schema):
+    descricao: str
+    loja_id: Optional[int] = None
+    categoria_id: int
+    valor: Decimal
+    data_competencia: date
+    data_transacao: date
+    rateios: List[RateioIn] = []
+    fornecedor_id: Optional[int] = None
+
+class RateioOut(Schema):
+    id: int
+    descricao: str
+    valor: Decimal
+    categoria_id: Optional[int]
+
+class DespesaOut(Schema):
+    id: int
+    descricao: str
+    valor_liquido: Decimal
+    data_transacao: Optional[date] = None
+    data_competencia: date
+    categoria: CategoriaOut = None
+
+class DespesaDetailOut(DespesaOut):
+    valor_bruto: Decimal
+    valor_desconto: Decimal
+    valor_acrescimo: Decimal
+    splits: List[RateioOut] = []
 @router.get("/despesas/", response=List[DespesaOut])
 def listar_despesas(
     request, 
@@ -550,7 +490,7 @@ def get_dre(request, loja_id: int, mes: int, ano: int):
         gerado_por = "Sistema"
 
     # Extrair nome da loja (apenas genérico para teste sem dependencias fortes de outros models)
-    loja_nome = f"Loja {loja_id}"
+    loja_nome = request.auth.get('loja_nome', f"Loja {loja_id}") if isinstance(request.auth, dict) else f"Loja {loja_id}"
 
     from financeiro_core.app.services.dre_service import DREService
     try:
@@ -580,7 +520,7 @@ def get_dre_pdf(request, loja_id: int, mes: int, ano: int):
     except:
         gerado_por = "Sistema"
 
-    loja_nome = f"Loja {loja_id}"
+    loja_nome = request.auth.get('loja_nome', f"Loja {loja_id}") if isinstance(request.auth, dict) else f"Loja {loja_id}"
 
     from financeiro_core.app.services.dre_service import DREService
     from financeiro_core.reports.dre_pdf import DREPDFGenerator
@@ -619,7 +559,7 @@ def get_dre_xml(request, loja_id: int, mes: int, ano: int):
     except:
         gerado_por = "Sistema"
 
-    loja_nome = f"Loja {loja_id}"
+    loja_nome = request.auth.get('loja_nome', f"Loja {loja_id}") if isinstance(request.auth, dict) else f"Loja {loja_id}"
 
     from financeiro_core.app.services.dre_service import DREService
     from financeiro_core.reports.dre_xml import DREXMLGenerator
@@ -640,157 +580,93 @@ def get_dre_xml(request, loja_id: int, mes: int, ano: int):
     except Exception as e:
         raise HttpError(503, "Serviço indisponível no momento.")
 
+class FechamentoOut(Schema):
+    loja_id_externo: int
+    mes: int
+    ano: int
+    receita_bruta: Decimal
+    total_dinheiro: Decimal = Decimal('0.00')
+    total_cartao: Decimal = Decimal('0.00')
+    total_pix: Decimal = Decimal('0.00')
+    impostos: Decimal
+    receita_liquida: Decimal
+    custos_produtos: Decimal
+    lucro_bruto: Decimal
+    despesas_operacionais: Decimal
+    resultado_operacional: Decimal
+    despesas_financeiras: Decimal
+    lucro_liquido: Decimal
+
 @router.post("/fechamento/calcular/{loja_id}/{mes}/{ano}", response=FechamentoOut)
+class FechamentoOut(Schema):
+    loja_id_externo: int
+    mes: int
+    ano: int
+    receita_bruta: Decimal
+    total_dinheiro: Decimal = Decimal('0.00')
+    total_cartao: Decimal = Decimal('0.00')
+    total_pix: Decimal = Decimal('0.00')
+    impostos: Decimal
+    receita_liquida: Decimal
+    custos_produtos: Decimal
+    lucro_bruto: Decimal
+    despesas_operacionais: Decimal
+    resultado_operacional: Decimal
+    despesas_financeiras: Decimal
+    lucro_liquido: Decimal
+
 @router.post("/fechamento/calcular/{loja_id}/{mes}/{ano}", response=FechamentoOut)
 def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
-    """Calcula e persiste o fechamento mensal."""
-    active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
-    if not active_loja_id:
-        raise HttpError(400, "Nenhuma loja ativa no contexto")
-
-    # Assegura que o parâmetro de loja_id no endpoint corresponde à loja ativa ou ignora o parâmetro
-    # e força a operação para a loja ativa do token, blindando a integridade.
-    target_loja = active_loja_id
-
-    # 1. Instancia dependências (SQL Real ou Mock)
-    """Calcula e persiste o fechamento mensal, blindado contra quebras silenciosas."""
-    try:
-        active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
-        if not active_loja_id:
-            raise HttpError(400, "Nenhuma loja ativa no contexto")
-
-        target_loja = active_loja_id
-
-        try:
-            vendas_client = VendasClientSQL()
-        except Exception as e:
-            print(f"Erro conexão SQL: {e}")
-            vendas_client = VendasAPIClientMock()
-
-        repo_taxas = DjangoRepositorioTaxas()
-        repo_despesas = DjangoRepositorioDespesas()
-
-        processador = ProcessadorFechamento(repo_taxas, repo_despesas)
-        dados_vendas = vendas_client.get_faturamento_por_loja(target_loja, mes, ano)
-        resultado = processador.executar_fechamento(target_loja, mes, ano, dados_vendas)
-
-        with transaction.atomic():
-            fechamento, created = FechamentoMensal.objects.update_or_create(
-                loja_id_externo=target_loja,
-                mes=mes,
-                ano=ano,
-                defaults={
-                    'faturamento_bruto': resultado.faturamento_bruto,
-                    'total_taxas': resultado.total_taxas,
-                    'receita_liquida': resultado.receita_liquida,
-                    'total_despesas': resultado.impostos + resultado.custos_produtos + resultado.despesas_operacionais + resultado.despesas_financeiras,
-                    'resultado_operacional': resultado.resultado_operacional,
-                    'status': 'ABERTO',
-                    'dados_auditoria_snapshot': resultado.snapshot_dados
-                }
-            )
-
-        resposta_dre = {
-            "loja_id_externo": target_loja,
-            "mes": mes,
-            "ano": ano,
-            "receita_bruta": resultado.faturamento_bruto or Decimal('0.00'),
-            "total_dinheiro": resultado.total_dinheiro or Decimal('0.00'),
-            "total_cartao": resultado.total_cartao or Decimal('0.00'),
-            "total_pix": resultado.total_pix or Decimal('0.00'),
-            "impostos": resultado.impostos or Decimal('0.00'),
-            "receita_liquida": resultado.receita_liquida or Decimal('0.00'),
-            "custos_produtos": resultado.custos_produtos or Decimal('0.00'),
-            "lucro_bruto": resultado.lucro_bruto or Decimal('0.00'),
-            "despesas_operacionais": resultado.despesas_operacionais or Decimal('0.00'),
-            "resultado_operacional": resultado.resultado_operacional or Decimal('0.00'),
-            "total_taxas": resultado.total_taxas or Decimal('0.00'),
-            "despesas_financeiras": resultado.despesas_financeiras or Decimal('0.00'),
-            "lucro_liquido": resultado.lucro_liquido or Decimal('0.00'),
-            "status": fechamento.status
-        }
-
-        return resposta_dre
-        
-    except Exception as e:
-        print("======= ERRO FATAL NO FECHAMENTO =======")
-        traceback.print_exc()
-        print("========================================")
-        raise HttpError(500, f"Erro interno detectado: {str(e)}")
-
-from ninja import File
-from ninja.files import UploadedFile
-from financeiro_core.app.services.ofx_parser import OfxParserService
-from datetime import date
-
-class ExtratoItemOut(Schema):
-    data_transacao: date
-    descricao_original: str
-    valor: Decimal
-    tipo: str
-    categoria_sugerida_id: int | None = None
-
-@router.post("/import-statement/", response=list[ExtratoItemOut])
-def importar_extrato(request, file: UploadedFile = File(...)):
-    """Importa um arquivo OFX/OFC e retorna as transações com sugestões de categoria."""
-    active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
-    if not active_loja_id:
-        raise HttpError(400, "Nenhuma loja ativa no contexto")
-
-    content = file.read().decode('utf-8', errors='ignore')
-    transactions = OfxParserService.parse(content)
-
-    for t in transactions:
-        t['categoria_sugerida_id'] = OfxParserService.adivinhar_categoria(t['descricao_original'], active_loja_id)
-
-    return transactions
-
-@router.post("/extrato/importar-despesas/{loja_id}")
-@router.post("/extrato/importar-despesas/{loja_id}/")
-def importar_extrato_despesas(request, loja_id: int, file: UploadedFile = File(...)):
-    """Importa um arquivo OFX/OFC filtrando estritamente para SAIDAS."""
-    import re
-
+    """Calcula e persiste o fechamento mensal, chamando DREService."""
     active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
     if not active_loja_id or int(active_loja_id) != loja_id:
-        raise HttpError(400, "Loja inválida no contexto")
+        raise HttpError(403, "Acesso negado à loja solicitada.")
+    if not (1 <= mes <= 12):
+        raise HttpError(400, "Mês inválido.")
 
     check_permission(request, loja_id)
 
+    from financeiro_core.app.services.dre_service import DREService
     try:
-        conteudo = file.read().decode('latin-1', errors='ignore')
+        service = DREService()
+        loja_nome = request.auth.get('loja_nome', f"Loja {loja_id}") if isinstance(request.auth, dict) else f"Loja {loja_id}"
+        gerado_por = "Sistema"
+        dre_data = service.gerar(loja_id, mes, ano, loja_nome, gerado_por)
+        resumo = dre_data['resumo']
+
+        with transaction.atomic():
+            fechamento = FechamentoMensal.objects.filter(loja_id_externo=loja_id, mes=mes, ano=ano).first()
+            if not fechamento:
+                fechamento = FechamentoMensal(
+                    loja_id_externo=loja_id, mes=mes, ano=ano, status='ABERTO'
+                )
+
+            fechamento.faturamento_bruto = resumo['receita_bruta']
+            fechamento.total_taxas = resumo['taxas_cartao']
+            fechamento.receita_liquida = resumo['receita_liquida']
+            fechamento.total_despesas = resumo['despesas_operacionais']
+            fechamento.resultado_operacional = resumo['resultado_operacional']
+            fechamento.dados_auditoria_snapshot = dre_data
+            fechamento.save()
+
+        return {
+            "loja_id_externo": fechamento.loja_id_externo,
+            "mes": fechamento.mes,
+            "ano": fechamento.ano,
+            "receita_bruta": fechamento.faturamento_bruto,
+            "total_dinheiro": Decimal('0.00'),
+            "total_cartao": Decimal('0.00'),
+            "total_pix": Decimal('0.00'),
+            "impostos": resumo['impostos'],
+            "receita_liquida": fechamento.receita_liquida,
+            "custos_produtos": resumo['custos_produtos'],
+            "lucro_bruto": resumo['lucro_bruto'],
+            "despesas_operacionais": fechamento.total_despesas,
+            "resultado_operacional": fechamento.resultado_operacional,
+            "despesas_financeiras": resumo['despesas_financeiras_total'],
+            "lucro_liquido": resumo['lucro_liquido']
+        }
     except Exception as e:
-        raise HttpError(400, "Erro ao ler a codificação do ficheiro.")
-
-    transacoes_negativas = []
-
-    blocos = conteudo.split('<STMTTRN>')
-
-    for bloco in blocos[1:]:
-        try:
-            dt_match = re.search(r'<DTPOSTED>(\d{8})', bloco)
-            amt_match = re.search(r'<TRNAMT>([\-\d\.]+)', bloco)
-            memo_match = re.search(r'<MEMO>(.*)', bloco)
-
-            if dt_match and amt_match and memo_match:
-                valor = float(amt_match.group(1))
-
-                if valor < 0:
-                    data_str = dt_match.group(1)
-                    data_formatada = f"{data_str[0:4]}-{data_str[4:6]}-{data_str[6:8]}"
-
-                    descricao = memo_match.group(1).strip()
-
-                    categoria_sug = OfxParserService.adivinhar_categoria(descricao, active_loja_id)
-
-                    transacoes_negativas.append({
-                        "data_transacao": data_formatada,
-                        "descricao_original": descricao,
-                        "valor": valor,
-                        "tipo": "SAIDA",
-                        "categoria_sugerida_id": categoria_sug
-                    })
-        except Exception:
-            continue
-
-    return transacoes_negativas
+        import traceback
+        traceback.print_exc()
+        raise HttpError(503, "Serviço indisponível no momento.")
