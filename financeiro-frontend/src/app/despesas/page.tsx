@@ -176,12 +176,29 @@ export default function DespesasPage() {
                             const formData = new FormData();
                             formData.append('file', file);
 
-                            // Recuperar token
-                            let token = typeof window !== 'undefined' ? (localStorage.getItem('token') || localStorage.getItem('access_token')) : null;
+                            // RECUPERAÇÃO À PROVA DE BALAS DO TOKEN JWT
+                            // Varre todo o localStorage e cookies para "pescar" o token, independentemente do nome da chave ou de aspas em JSON.
+                            let rawData = document.cookie;
+                            if (typeof window !== 'undefined') {
+                                for (let i = 0; i < localStorage.length; i++) {
+                                    const key = localStorage.key(i);
+                                    if (key) {
+                                        const val = localStorage.getItem(key);
+                                        // Otimização: só anexa se parecer conter um JWT
+                                        if (val && val.includes('eyJ')) {
+                                            rawData += ' ' + val;
+                                        }
+                                    }
+                                }
+                            }
                             
-                            // LIMPEZA DO TOKEN: Remove aspas duplas caso o JSON.stringify as tenha adicionado no localStorage
-                            if (token) {
-                                token = token.replace(/^"|"$/g, '');
+                            // Extrai exatamente o padrão do JWT (3 blocos alfanuméricos separados por ponto)
+                            const jwtMatch = rawData.match(/(eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+)/);
+                            const token = jwtMatch ? jwtMatch[0] : null;
+
+                            if (!token) {
+                                alert("Sessão inválida ou token não encontrado. Por favor, faça login novamente.");
+                                return;
                             }
                             
                             const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://financeiro-backend-2isx.onrender.com/api/financeiro';
