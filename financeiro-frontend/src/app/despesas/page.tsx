@@ -168,7 +168,6 @@ export default function DespesasPage() {
                      const file = e.target.files?.[0];
                      if (file) {
                         try {
-                            // Prevenir importação sem loja selecionada
                             if (!activeLoja?.id) {
                                 alert("Erro: Selecione uma loja antes de importar o extrato.");
                                 return;
@@ -177,14 +176,16 @@ export default function DespesasPage() {
                             const formData = new FormData();
                             formData.append('file', file);
 
-                            // Recuperar token com fallback para diferentes chaves comuns
-                            const token = typeof window !== 'undefined' ? (localStorage.getItem('token') || localStorage.getItem('access_token')) : null;
+                            // Recuperar token
+                            let token = typeof window !== 'undefined' ? (localStorage.getItem('token') || localStorage.getItem('access_token')) : null;
+                            
+                            // LIMPEZA DO TOKEN: Remove aspas duplas caso o JSON.stringify as tenha adicionado no localStorage
+                            if (token) {
+                                token = token.replace(/^"|"$/g, '');
+                            }
                             
                             const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://financeiro-backend-2isx.onrender.com/api/financeiro';
 
-                            // CORREÇÕES ESTRATÉGICAS:
-                            // 1. Usar activeLoja.id em vez de tentar ler do localStorage cegamente (evita erro de permissão da loja 1).
-                            // 2. Adicionada a barra "/" no final do URL. O Django redireciona sem a barra, perdendo o Header de Auth (causando 401).
                             const res = await fetch(`${apiUrl}/extrato/importar-despesas/${activeLoja.id}/`, {
                                 method: 'POST',
                                 headers: {
@@ -199,7 +200,7 @@ export default function DespesasPage() {
                                 alert(`Extrato lido com sucesso! ${extratoTransacoes.length} saídas aguardam categorização.`);
                             } else {
                                 const errorData = await res.json().catch(() => ({ detail: 'Erro interno do servidor.' }));
-                                alert('Erro ao importar extrato: ' + (errorData.detail || 'Erro desconhecido. Verifique permissões.'));
+                                alert('Erro ao importar extrato: ' + (errorData.detail || 'Sua sessão pode ter expirado. Tente fazer login novamente.'));
                             }
                         } catch (error) {
                             console.error('Erro na importação:', error);
