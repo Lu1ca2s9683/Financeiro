@@ -64,6 +64,18 @@ export default function DespesasPage() {
     }
   };
 
+  // Função Auxiliar para cruzar o ID da categoria com o Nome Real
+  const getCategoriaNome = (d: any) => {
+    if (d.categoria_nome) return d.categoria_nome;
+    if (d.categoria && typeof d.categoria === 'object' && d.categoria.nome) return d.categoria.nome;
+    
+    const catId = d.categoria_id || (typeof d.categoria !== 'object' ? d.categoria : null);
+    if (catId) {
+        const found = categoriasPendentes.find(c => String(c.id) === String(catId));
+        if (found) return found.nome;
+    }
+    return 'Sem Categoria';
+  };
 
   const salvarImportada = async (index: number) => {
       const item = importedDespesas[index];
@@ -135,7 +147,6 @@ export default function DespesasPage() {
     }
   };
 
-
   useEffect(() => {
     carregar();
   }, [activeLoja?.id || 0, mes, ano]);
@@ -177,14 +188,12 @@ export default function DespesasPage() {
                             formData.append('file', file);
 
                             // RECUPERAÇÃO À PROVA DE BALAS DO TOKEN JWT
-                            // Varre todo o localStorage e cookies para "pescar" o token, independentemente do nome da chave ou de aspas em JSON.
                             let rawData = document.cookie;
                             if (typeof window !== 'undefined') {
                                 for (let i = 0; i < localStorage.length; i++) {
                                     const key = localStorage.key(i);
                                     if (key) {
                                         const val = localStorage.getItem(key);
-                                        // Otimização: só anexa se parecer conter um JWT
                                         if (val && val.includes('eyJ')) {
                                             rawData += ' ' + val;
                                         }
@@ -192,7 +201,6 @@ export default function DespesasPage() {
                                 }
                             }
                             
-                            // Extrai exatamente o padrão do JWT (3 blocos alfanuméricos separados por ponto)
                             const jwtMatch = rawData.match(/(eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+)/);
                             const token = jwtMatch ? jwtMatch[0] : null;
 
@@ -213,8 +221,26 @@ export default function DespesasPage() {
 
                             if (res.ok) {
                                 const extratoTransacoes = await res.json();
-                                setImportedDespesas(extratoTransacoes.map((t: any, idx: number) => ({ ...t, _tempId: idx, expanded: false, rateios: [] })));
-                                alert(`Extrato lido com sucesso! ${extratoTransacoes.length} saídas aguardam categorização.`);
+                                
+                                // PROTEÇÃO CONTRA DUPLICATAS (FRONTEND)
+                                const transacoesFiltradas = extratoTransacoes.filter((t: any) => {
+                                    // Verifica se a transação do extrato já existe na tabela de despesas salvas
+                                    const isDuplicata = despesas.some(d => 
+                                        d.data_transacao === t.data_transacao && 
+                                        d.descricao === t.descricao_original
+                                    );
+                                    return !isDuplicata;
+                                });
+
+                                setImportedDespesas(transacoesFiltradas.map((t: any, idx: number) => ({ ...t, _tempId: idx, expanded: false, rateios: [] })));
+                                
+                                const ignoradas = extratoTransacoes.length - transacoesFiltradas.length;
+                                let msg = `Extrato lido com sucesso! ${transacoesFiltradas.length} saídas aguardam categorização.`;
+                                if (ignoradas > 0) {
+                                    msg += `\n\n(${ignoradas} transações já estavam registradas e foram ignoradas automaticamente.)`;
+                                }
+                                alert(msg);
+                                
                             } else {
                                 const errorData = await res.json().catch(() => ({ detail: 'Erro interno do servidor.' }));
                                 alert('Erro ao importar extrato: ' + (errorData.detail || 'Sua sessão pode ter expirado. Tente fazer login novamente.'));
@@ -389,8 +415,11 @@ export default function DespesasPage() {
                   <tr key={d.id} className="hover:bg-slate-50 transition-colors">
                     <td className="p-4 text-sm text-slate-600">{d.data_transacao}</td>
                     <td className="p-4 text-sm font-medium text-slate-900">{d.descricao}</td>
-                    {/* Correção TypeScript: (d as any).categoria_nome força o compilador a ignorar a falta da propriedade na Interface */}
-                    <td className="p-4 text-sm text-slate-600">{(d as any).categoria_nome || 'Sem Categoria'}</td>
+                    <td className="p-4 text-sm text-slate-600">
+                        <span className="bg-slate-100 px-2 py-1 rounded-md border border-slate-200">
+                            {getCategoriaNome(d)}
+                        </span>
+                    </td>
                     <td className="p-4 text-sm font-bold text-rose-600 text-right">
                       - {Number((d as any).valor_liquido || (d as any).valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                     </td>
