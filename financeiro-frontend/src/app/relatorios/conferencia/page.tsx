@@ -1,43 +1,23 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps, react-hooks/set-state-in-effect, @typescript-eslint/no-require-imports */
 'use client';
 import { useState, useMemo } from 'react';
-import { UploadCloud, CheckCircle, XCircle } from 'lucide-react';
+import { UploadCloud } from 'lucide-react';
 import { api, ExtratoItem } from '@/services/api';
+import { useFinanceiro } from '@/contexts/FinanceiroContext';
 
 export default function ConferenciaPage() {
+    const { lojaId } = useFinanceiro();
     const [file, setFile] = useState<File | null>(null);
     const [extrato, setExtrato] = useState<ExtratoItem[]>([]);
     const [loading, setLoading] = useState(false);
-    const [vendasMock, setVendasMock] = useState<any[]>([
-        { id: 1, data: '2024-01-10', valor: 1500.00, descricao: 'Venda de produtos A' },
-        { id: 2, data: '2024-01-15', valor: 300.00, descricao: 'Serviço prestado B' }
-    ]);
 
     const handleImport = async () => {
-        if (!file) return;
+        if (!file || !lojaId) return;
         setLoading(true);
         try {
-            const formData = new FormData();
-            formData.append('file', file);
-
-            const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-            const lojaId = typeof window !== 'undefined' ? localStorage.getItem('active_loja_id') || '1' : '1';
-
-            const res = await fetch(`http://localhost:8000/api/financeiro/extrato/importar/${lojaId}`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                },
-                body: formData
-            });
-
-            if (res.ok) {
-                const data = await res.json();
-                // Regra de Negócio: Mostrar apenas ENTRADAS na tela de conferência
-                setExtrato(data.filter((item: any) => item.tipo === 'ENTRADA'));
-            } else {
-                alert("Erro ao importar arquivo");
-            }
+            const data = await api.importarExtratoDespesas(lojaId, file);
+            // Regra de Negócio: Mostrar apenas ENTRADAS na tela de conferência
+            setExtrato(data.filter((item) => item.tipo === 'ENTRADA'));
         } catch (e) {
             console.error(e);
             alert("Erro ao importar arquivo");
@@ -49,12 +29,6 @@ export default function ConferenciaPage() {
     const totalEntradasExtrato = useMemo(() => {
         return extrato.reduce((acc, item) => acc + Number(item.valor), 0);
     }, [extrato]);
-
-    const totalVendasSistema = useMemo(() => {
-        return vendasMock.reduce((acc, item) => acc + Number(item.valor), 0);
-    }, [vendasMock]);
-
-    const diferenca = totalEntradasExtrato - totalVendasSistema;
 
     return (
         <main className="p-8 space-y-6 animate-enter flex flex-col min-h-screen">
@@ -71,16 +45,12 @@ export default function ConferenciaPage() {
 
                 <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
                     <span className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-1">Vendas no Sistema</span>
-                    <span className="text-3xl font-bold text-blue-600 font-mono">
-                        {totalVendasSistema.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                    </span>
+                    <span className="text-sm font-semibold text-slate-500">Dados de vendas não disponíveis nesta fase.</span>
                 </div>
 
-                <div className={`p-6 rounded-xl border shadow-sm flex flex-col justify-center ${diferenca >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
-                    <span className={`text-sm font-semibold uppercase tracking-wider mb-1 ${diferenca >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>Diferença (Consolidação)</span>
-                    <span className={`text-3xl font-bold font-mono ${diferenca >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                        {diferenca > 0 ? '+' : ''}{diferenca.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                    </span>
+                <div className="p-6 rounded-xl border shadow-sm flex flex-col justify-center bg-slate-50 border-slate-200">
+                    <span className="text-sm font-semibold uppercase tracking-wider mb-1 text-slate-600">Diferença (Consolidação)</span>
+                    <span className="text-sm font-semibold text-slate-500">Indisponível sem integração real de vendas.</span>
                 </div>
             </div>
 
@@ -132,17 +102,9 @@ export default function ConferenciaPage() {
                         <span className="text-xs text-slate-500">Apenas entradas projetadas</span>
                     </div>
                     <div className="overflow-y-auto p-4 space-y-3 flex-1">
-                        {vendasMock.map(venda => (
-                            <div key={venda.id} className="flex justify-between items-center p-3 bg-emerald-50 rounded-lg border border-emerald-100 cursor-pointer hover:bg-emerald-100 transition">
-                                <div>
-                                    <div className="text-xs text-emerald-600/70 font-mono">{venda.data}</div>
-                                    <div className="text-sm font-medium text-emerald-900">{venda.descricao}</div>
-                                </div>
-                                <div className="font-mono font-bold text-emerald-700">
-                                    {Number(venda.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                </div>
-                            </div>
-                        ))}
+                        <p className="text-slate-400 text-center mt-10">
+                            Dados de vendas não disponíveis: nenhuma integração real de conciliação foi implementada.
+                        </p>
                     </div>
                 </div>
             </div>

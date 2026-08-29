@@ -186,7 +186,7 @@ function NovaTransferenciaModal({ contas, onClose, onSuccess }: { contas: ContaB
     conta_origem_id: '',
     conta_destino_id: '',
     valor: '',
-    data_ocorrencia: new Date().toISOString().slice(0, 10),
+    data: new Date().toISOString().slice(0, 10),
     descricao: ''
   });
 
@@ -243,7 +243,7 @@ function NovaTransferenciaModal({ contas, onClose, onSuccess }: { contas: ContaB
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Data</label>
-              <input required type="date" className="w-full bg-white text-slate-900 border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500" value={form.data_ocorrencia} onChange={e => setForm({...form, data_ocorrencia: e.target.value})} />
+              <input required type="date" className="w-full bg-white text-slate-900 border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500" value={form.data} onChange={e => setForm({...form, data: e.target.value})} />
             </div>
           </div>
 

@@ -1,4 +1,6 @@
-from ninja import Router, Schema, Field
+import json
+
+from ninja import File, Router, Schema, UploadedFile
 from financeiro_core.app.services.dre_repositories import DjangoRepositorioTaxas, DjangoRepositorioDespesas
 
 class DashboardResumoOut(Schema):
@@ -16,7 +18,9 @@ from typing import List, Optional
 from decimal import Decimal
 from django.shortcuts import get_object_or_404
 from django.db import transaction
-from datetime import date
+from django.core.serializers.json import DjangoJSONEncoder
+from datetime import date, datetime, time
+from django.utils import timezone
 import traceback
 
 # Importações dos modelos e serviços
@@ -70,6 +74,8 @@ def obter_resumo_dashboard(request, loja_id: int, mes: int, ano: int):
     """Retorna dados agregados para o dashboard usando Regime de Caixa (data_transacao)."""
     print(f"DEBUG: Endpoint Dashboard acessado pelo usuário {request.auth}")
     check_permission(request, loja_id)
+    if not (1 <= mes <= 12):
+        raise HttpError(400, "Mês inválido.")
 
     despesas = ContaPagar.objects.filter(
         loja_id_externo=loja_id,
@@ -114,13 +120,6 @@ def obter_resumo_dashboard(request, loja_id: int, mes: int, ano: int):
         "saude_financeira": "SAUDAVEL",
         "mensagem_assistente": "Resumo calculado em regime de caixa com sucesso."
     }
-def listar_contas(request):
-    """Lista contas bancárias e cofres da loja ativa."""
-    active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
-    if not active_loja_id:
-        raise HttpError(400, "Nenhuma loja ativa no contexto")
-
-    return ContaBancaria.objects.filter(loja_id_externo=active_loja_id, ativo=True)
 
 
 class ContaBancariaOut(Schema):
@@ -130,6 +129,7 @@ class ContaBancariaOut(Schema):
     banco_codigo: str
     agencia: str
     conta: str
+    saldo_inicial: Decimal
     saldo_atual: Decimal
     ativo: bool
 
@@ -140,6 +140,18 @@ class ContaBancariaIn(Schema):
     agencia: str = ''
     conta: str = ''
     saldo_inicial: Decimal = Decimal('0.00')
+
+@router.get("/contas/", response=List[ContaBancariaOut], auth=AuthBearer())
+def listar_contas(request):
+    """Lista contas bancárias e cofres ativos da loja autenticada."""
+    active_loja_id = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
+    if not active_loja_id:
+        raise HttpError(400, "Nenhuma loja ativa no contexto")
+
+    return ContaBancaria.objects.filter(
+        loja_id_externo=active_loja_id,
+        ativo=True,
+    ).order_by("id")
 
 @router.post("/contas/", response=ContaBancariaOut, auth=AuthBearer())
 def criar_conta(request, payload: ContaBancariaIn):
@@ -184,6 +196,10 @@ def registrar_transferencia(request, payload: TransferenciaIn):
         raise HttpError(400, "O valor da transferência deve ser maior que zero.")
 
     user_id = getattr(request, 'user_id', None)
+    data_ocorrencia = timezone.make_aware(
+        datetime.combine(payload.data, time.min),
+        timezone.get_current_timezone(),
+    )
 
     with transaction.atomic():
         MovimentacaoCaixa.objects.create(
@@ -191,7 +207,7 @@ def registrar_transferencia(request, payload: TransferenciaIn):
             tipo_movimentacao='TRANSFERENCIA_SAIDA',
             descricao=payload.descricao,
             valor=payload.valor,
-            data_ocorrencia=payload.data_ocorrencia,
+            data_ocorrencia=data_ocorrencia,
             loja_id_externo=active_loja_id,
             criado_por_id=user_id
         )
@@ -201,12 +217,51 @@ def registrar_transferencia(request, payload: TransferenciaIn):
             tipo_movimentacao='TRANSFERENCIA_ENTRADA',
             descricao=payload.descricao,
             valor=payload.valor,
-            data_ocorrencia=payload.data_ocorrencia,
+            data_ocorrencia=data_ocorrencia,
             loja_id_externo=active_loja_id,
             criado_por_id=user_id
         )
 
     return {"success": True, "message": "Transferência realizada com sucesso."}
+
+
+class ExtratoItemOut(Schema):
+    data_transacao: date
+    descricao_original: str
+    valor: Decimal
+    tipo: str
+    categoria_sugerida_id: Optional[int] = None
+
+
+@router.post(
+    "/extrato/importar-despesas/{loja_id}/",
+    response=List[ExtratoItemOut],
+    auth=AuthBearer(),
+)
+def importar_extrato_despesas(request, loja_id: int, file: File[UploadedFile]):
+    """Lê um OFX/OFC sem persistir lançamentos e respeita a loja autenticada."""
+    check_permission(request, loja_id)
+
+    raw_content = file.read()
+    try:
+        file_content = raw_content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        file_content = raw_content.decode("latin-1")
+
+    from financeiro_core.app.services.ofx_parser import OfxParserService
+
+    transactions = OfxParserService.parse(file_content)
+    if not transactions:
+        raise HttpError(400, "Arquivo OFX/OFC inválido ou sem transações válidas.")
+
+    for item in transactions:
+        item["categoria_sugerida_id"] = (
+            OfxParserService.adivinhar_categoria(item["descricao_original"], loja_id)
+            if item["tipo"] == "SAIDA"
+            else None
+        )
+
+    return transactions
 
 # --- CATEGORIAS (CRUD) ---
 
@@ -581,10 +636,10 @@ def get_dre_xml(request, loja_id: int, mes: int, ano: int):
         raise HttpError(503, "Serviço indisponível no momento.")
 
 class FechamentoOut(Schema):
-    loja_id_externo: int
+    loja_id: int
     mes: int
     ano: int
-    receita_bruta: Decimal
+    faturamento_bruto: Decimal
     total_dinheiro: Decimal = Decimal('0.00')
     total_cartao: Decimal = Decimal('0.00')
     total_pix: Decimal = Decimal('0.00')
@@ -596,24 +651,7 @@ class FechamentoOut(Schema):
     resultado_operacional: Decimal
     despesas_financeiras: Decimal
     lucro_liquido: Decimal
-
-@router.post("/fechamento/calcular/{loja_id}/{mes}/{ano}", response=FechamentoOut)
-class FechamentoOut(Schema):
-    loja_id_externo: int
-    mes: int
-    ano: int
-    receita_bruta: Decimal
-    total_dinheiro: Decimal = Decimal('0.00')
-    total_cartao: Decimal = Decimal('0.00')
-    total_pix: Decimal = Decimal('0.00')
-    impostos: Decimal
-    receita_liquida: Decimal
-    custos_produtos: Decimal
-    lucro_bruto: Decimal
-    despesas_operacionais: Decimal
-    resultado_operacional: Decimal
-    despesas_financeiras: Decimal
-    lucro_liquido: Decimal
+    status: str
 
 @router.post("/fechamento/calcular/{loja_id}/{mes}/{ano}", response=FechamentoOut)
 def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
@@ -646,14 +684,16 @@ def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
             fechamento.receita_liquida = resumo['receita_liquida']
             fechamento.total_despesas = resumo['despesas_operacionais']
             fechamento.resultado_operacional = resumo['resultado_operacional']
-            fechamento.dados_auditoria_snapshot = dre_data
+            fechamento.dados_auditoria_snapshot = json.loads(
+                json.dumps(dre_data, cls=DjangoJSONEncoder)
+            )
             fechamento.save()
 
         return {
-            "loja_id_externo": fechamento.loja_id_externo,
+            "loja_id": fechamento.loja_id_externo,
             "mes": fechamento.mes,
             "ano": fechamento.ano,
-            "receita_bruta": fechamento.faturamento_bruto,
+            "faturamento_bruto": fechamento.faturamento_bruto,
             "total_dinheiro": Decimal('0.00'),
             "total_cartao": Decimal('0.00'),
             "total_pix": Decimal('0.00'),
@@ -664,7 +704,8 @@ def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
             "despesas_operacionais": fechamento.total_despesas,
             "resultado_operacional": fechamento.resultado_operacional,
             "despesas_financeiras": resumo['despesas_financeiras_total'],
-            "lucro_liquido": resumo['lucro_liquido']
+            "lucro_liquido": resumo['lucro_liquido'],
+            "status": fechamento.status,
         }
     except Exception as e:
         import traceback
