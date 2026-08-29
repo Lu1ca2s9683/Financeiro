@@ -1,3 +1,4 @@
+import json
 import unittest
 from unittest.mock import patch
 
@@ -177,9 +178,7 @@ class DespesasApiTest(TestCase):
         count_after = FechamentoMensal.objects.count()
         self.assertEqual(count_before, count_after)
 
-    @unittest.expectedFailure
     def test_post_fechamento_preserves_status(self, mock_faturamento):
-        # KNOWN_BUG_PHASE_1: Fechamento calculation fails with 422 under some conditions
         # 5. POST preserva status CONCLUIDO.
         from financeiro_core.models import FechamentoMensal
 
@@ -189,8 +188,97 @@ class DespesasApiTest(TestCase):
         response = self.client.post(f"/fechamento/calcular/{self.loja_id}/{self.mes_fechado}/{self.ano_fechado}", headers=self.auth_headers)
         self.assertEqual(response.status_code, 200)
 
+        data = response.json()
+        self.assertEqual(
+            set(data),
+            {
+                "loja_id",
+                "mes",
+                "ano",
+                "faturamento_bruto",
+                "total_dinheiro",
+                "total_cartao",
+                "total_pix",
+                "impostos",
+                "receita_liquida",
+                "custos_produtos",
+                "lucro_bruto",
+                "despesas_operacionais",
+                "resultado_operacional",
+                "despesas_financeiras",
+                "lucro_liquido",
+                "status",
+            },
+        )
+        self.assertEqual(data["loja_id"], self.loja_id)
+        self.assertEqual(data["status"], "CONCLUIDO")
+
         fechamento.refresh_from_db()
         self.assertEqual(fechamento.status, 'CONCLUIDO')
+        json.dumps(fechamento.dados_auditoria_snapshot)
+        self.assertEqual(
+            fechamento.dados_auditoria_snapshot["resumo"]["receita_bruta"],
+            "0.00",
+        )
+
+    def test_post_fechamento_invalid_month_returns_400(self, mock_faturamento):
+        response = self.client.post(
+            f"/fechamento/calcular/{self.loja_id}/13/{self.ano_aberto}",
+            headers=self.auth_headers,
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_post_fechamento_invalid_store_returns_403(self, mock_faturamento):
+        response = self.client.post(
+            f"/fechamento/calcular/{self.loja_id + 1}/{self.mes_aberto}/{self.ano_aberto}",
+            headers=self.auth_headers,
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_dashboard_response_contract(self, mock_faturamento):
+        response = self.client.get(
+            f"/dashboard/resumo/{self.loja_id}/{self.mes_aberto}/{self.ano_aberto}",
+            headers=self.auth_headers,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            set(response.json()),
+            {
+                "percentual_pago",
+                "percentual_atrasado",
+                "percentual_previsto",
+                "total_despesas_mes",
+                "despesas_vencendo_semana",
+                "despesas_atrasadas",
+                "saude_financeira",
+                "mensagem_assistente",
+            },
+        )
+
+    def test_dashboard_invalid_month_returns_400(self, mock_faturamento):
+        response = self.client.get(
+            f"/dashboard/resumo/{self.loja_id}/13/{self.ano_aberto}",
+            headers=self.auth_headers,
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_dashboard_requires_authentication(self, mock_faturamento):
+        response = self.client.get(
+            f"/dashboard/resumo/{self.loja_id}/{self.mes_aberto}/{self.ano_aberto}"
+        )
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_post_fechamento_requires_authentication(self, mock_faturamento):
+        response = self.client.post(
+            f"/fechamento/calcular/{self.loja_id}/{self.mes_aberto}/{self.ano_aberto}"
+        )
+
+        self.assertEqual(response.status_code, 401)
 
     def test_dre_json_structure(self, mock_faturamento):
         response = self.client.get(f"/dre/{self.loja_id}/{self.mes_aberto}/{self.ano_aberto}", headers=self.auth_headers)

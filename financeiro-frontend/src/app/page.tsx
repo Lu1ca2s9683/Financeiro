@@ -18,14 +18,24 @@ export default function DashboardPage() {
   const fetchDados = async () => {
     setLoading(true);
     try {
-      const [fechamento, dashResumo] = await Promise.all([
+      const [fechamentoResult, resumoResult] = await Promise.allSettled([
         api.getFechamento(lojaId, mes, ano),
         api.getDashboardResumo(lojaId, mes, ano)
       ]);
-      setDados(fechamento);
-      setResumo(dashResumo);
-    } catch (error) {
-      console.error(error);
+
+      if (fechamentoResult.status === 'fulfilled') {
+        setDados(fechamentoResult.value);
+      } else {
+        setDados(null);
+        console.error('Falha ao carregar fechamento:', fechamentoResult.reason);
+      }
+
+      if (resumoResult.status === 'fulfilled') {
+        setResumo(resumoResult.value);
+      } else {
+        setResumo(null);
+        console.error('Falha ao carregar resumo auxiliar:', resumoResult.reason);
+      }
     } finally {
       setLoading(false);
     }

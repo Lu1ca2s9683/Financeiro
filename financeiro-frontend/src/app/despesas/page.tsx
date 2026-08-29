@@ -185,67 +185,26 @@ export default function DespesasPage() {
                                 return;
                             }
 
-                            const formData = new FormData();
-                            formData.append('file', file);
+                            const extratoTransacoes = await api.importarExtratoDespesas(activeLoja.id, file);
+                            const saidas = extratoTransacoes.filter((t) => t.tipo === 'SAIDA');
 
-                            // RECUPERAÇÃO À PROVA DE BALAS DO TOKEN JWT
-                            let rawData = document.cookie;
-                            if (typeof window !== 'undefined') {
-                                for (let i = 0; i < localStorage.length; i++) {
-                                    const key = localStorage.key(i);
-                                    if (key) {
-                                        const val = localStorage.getItem(key);
-                                        if (val && val.includes('eyJ')) {
-                                            rawData += ' ' + val;
-                                        }
-                                    }
-                                }
-                            }
-                            
-                            const jwtMatch = rawData.match(/(eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+)/);
-                            const token = jwtMatch ? jwtMatch[0] : null;
-
-                            if (!token) {
-                                alert("Sessão inválida ou token não encontrado. Por favor, faça login novamente.");
-                                return;
-                            }
-                            
-                            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://financeiro-backend-2isx.onrender.com/api/financeiro';
-
-                            const res = await fetch(`${apiUrl}/extrato/importar-despesas/${activeLoja.id}/`, {
-                                method: 'POST',
-                                headers: {
-                                    'Authorization': `Bearer ${token}`
-                                },
-                                body: formData
+                            // PROTEÇÃO CONTRA DUPLICATAS (FRONTEND)
+                            const transacoesFiltradas = saidas.filter((t) => {
+                                const isDuplicata = despesas.some(d =>
+                                    d.data_transacao === t.data_transacao &&
+                                    d.descricao === t.descricao_original
+                                );
+                                return !isDuplicata;
                             });
 
-                            if (res.ok) {
-                                const extratoTransacoes = await res.json();
-                                
-                                // PROTEÇÃO CONTRA DUPLICATAS (FRONTEND)
-                                const transacoesFiltradas = extratoTransacoes.filter((t: any) => {
-                                    // Verifica se a transação do extrato já existe na tabela de despesas salvas
-                                    const isDuplicata = despesas.some(d => 
-                                        d.data_transacao === t.data_transacao && 
-                                        d.descricao === t.descricao_original
-                                    );
-                                    return !isDuplicata;
-                                });
+                            setImportedDespesas(transacoesFiltradas.map((t, idx) => ({ ...t, _tempId: idx, expanded: false, rateios: [] })));
 
-                                setImportedDespesas(transacoesFiltradas.map((t: any, idx: number) => ({ ...t, _tempId: idx, expanded: false, rateios: [] })));
-                                
-                                const ignoradas = extratoTransacoes.length - transacoesFiltradas.length;
-                                let msg = `Extrato lido com sucesso! ${transacoesFiltradas.length} saídas aguardam categorização.`;
-                                if (ignoradas > 0) {
-                                    msg += `\n\n(${ignoradas} transações já estavam registradas e foram ignoradas automaticamente.)`;
-                                }
-                                alert(msg);
-                                
-                            } else {
-                                const errorData = await res.json().catch(() => ({ detail: 'Erro interno do servidor.' }));
-                                alert('Erro ao importar extrato: ' + (errorData.detail || 'Sua sessão pode ter expirado. Tente fazer login novamente.'));
+                            const ignoradas = saidas.length - transacoesFiltradas.length;
+                            let msg = `Extrato lido com sucesso! ${transacoesFiltradas.length} saídas aguardam categorização.`;
+                            if (ignoradas > 0) {
+                                msg += `\n\n(${ignoradas} transações já estavam registradas e foram ignoradas automaticamente.)`;
                             }
+                            alert(msg);
                         } catch (error) {
                             console.error('Erro na importação:', error);
                             alert('Erro de conexão ao tentar importar extrato.');

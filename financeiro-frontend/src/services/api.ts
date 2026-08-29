@@ -167,10 +167,17 @@ export interface Fechamento {
   lucro_bruto: number;
   despesas_operacionais: number;
   resultado_operacional: number;
-  total_taxas: number;
   despesas_financeiras: number;
   lucro_liquido: number;
   status: string;
+}
+
+export interface TransferenciaInput {
+  conta_origem_id: number;
+  conta_destino_id: number;
+  valor: number;
+  data: string;
+  descricao: string;
 }
 
 // --- Types ---
@@ -285,7 +292,7 @@ export const api = {
     return res.json();
   },
 
-  createTransferencia: async (data: unknown) => {
+  createTransferencia: async (data: TransferenciaInput) => {
     const res = await fetch(`${API_BASE_URL}/contas/transferencia`, {
       method: 'POST',
       headers: getHeaders(),
@@ -448,23 +455,6 @@ export const api = {
     return res.json();
   },
 
-  importExtrato: async (file: File): Promise<ExtratoItem[]> => {
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const headers = getHeaders();
-    delete (headers as any)['Content-Type']; // Let browser set boundary
-
-    const res = await fetch(`${API_BASE_URL}/import-statement/`, {
-      method: 'POST',
-      headers: headers,
-      body: formData,
-    });
-    if (!res.ok) throw new Error('Falha ao importar extrato');
-    return res.json();
-  },
-
   createDespesa: async (data: unknown) => {
     const res = await fetch(`${API_BASE_URL}/despesas/`, {
       method: 'POST',
@@ -496,7 +486,7 @@ export const api = {
     if (!res.ok) throw new Error('Falha ao excluir');
     return res.json();
   },
-  importarExtratoDespesas: async (lojaId: number | string, file: File): Promise<ExtratoItem[]> => {
+  importarExtratoDespesas: async (lojaId: number, file: File): Promise<ExtratoItem[]> => {
     const formData = new FormData();
     formData.append('file', file);
     const headers = getHeaders();
