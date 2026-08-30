@@ -42,11 +42,32 @@ class CalculadoraFinanceira:
     Responsável exclusivamente pela matemática financeira de taxas.
     Utiliza arredondamento padrão bancário (ROUND_HALF_UP).
     """
-    
+
+    _TIPOS_TAXA_APLICAVEL = {
+        'CREDITO_AVISTA': 'CREDITO_AVISTA',
+        'CREDITO_PARCELADO': 'CREDITO_PARCELADO',
+        'DEBITO': 'DEBITO',
+        'PIX': 'PIX',
+        'PIX_MAQUINA': 'PIX',
+    }
+    _TIPOS_PIX = {'PIX', 'PIX_CONTA', 'PIX_MAQUINA'}
+    _TIPOS_CARTAO = {
+        'DEBITO',
+        'CREDITO_AVISTA',
+        'CREDITO_PARCELADO',
+        'CREDITO_NAO_IDENTIFICADO',
+        'CARTAO_NAO_IDENTIFICADO',
+    }
+
     @staticmethod
     def _arredondar(valor: Decimal) -> Decimal:
         """Helper para garantir 2 casas decimais em tudo."""
         return valor.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+    @staticmethod
+    def _tipo_taxa_aplicavel(tipo_pagamento: str) -> Optional[str]:
+        """Retorna o tipo de taxa apenas quando a modalidade é comprovada."""
+        return CalculadoraFinanceira._TIPOS_TAXA_APLICAVEL.get(tipo_pagamento)
     
     @staticmethod
     def calcular_liquido_vendas(
@@ -64,10 +85,17 @@ class CalculadoraFinanceira:
             valor_item = item.valor_bruto
             total_bruto += valor_item
             
-            # Busca a taxa aplicável para este item específico
-            taxa = repositorio_taxas.buscar_taxa(
-                loja_id, item.tipo_pagamento, item.bandeira, item.parcelas
+            tipo_taxa = CalculadoraFinanceira._tipo_taxa_aplicavel(
+                item.tipo_pagamento
             )
+            taxa = None
+            if tipo_taxa:
+                taxa = repositorio_taxas.buscar_taxa(
+                    loja_id,
+                    tipo_taxa,
+                    item.bandeira,
+                    item.parcelas,
+                )
             
             if taxa:
                 # O contrato atual representa um agregado por forma/bandeira. Sem uma
@@ -93,12 +121,9 @@ class CalculadoraFinanceira:
         for item in itens_venda:
             if item.tipo_pagamento == 'DINHEIRO':
                 total_dinheiro += item.valor_bruto
-            elif item.tipo_pagamento == 'PIX':
+            elif item.tipo_pagamento in CalculadoraFinanceira._TIPOS_PIX:
                 total_pix += item.valor_bruto
-            elif any(
-                marcador in item.tipo_pagamento
-                for marcador in ('CREDITO', 'DEBITO', 'CARTAO')
-            ):
+            elif item.tipo_pagamento in CalculadoraFinanceira._TIPOS_CARTAO:
                 total_cartao += item.valor_bruto
             else:
                 total_outros += item.valor_bruto

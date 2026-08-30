@@ -1,8 +1,13 @@
+import logging
 from decimal import Decimal
 from typing import List
+
 from django.db import connections
+
 from ..domain.services import FaturamentoItemDTO
-import re
+
+
+logger = logging.getLogger(__name__)
 
 class VendasClientSQL:
     """
@@ -10,36 +15,27 @@ class VendasClientSQL:
     Nome da tabela identificada: vendas_venda
     """
 
-    def _mapear_tipo_pagamento(self, tipo_raw: str, parcelas: int) -> str:
-        """
-        Traduz a string do banco legado para o Enum do sistema financeiro.
-        Ajustado para lidar com o termo genérico 'CARTAO' encontrado nos logs.
-        """
-        if not tipo_raw:
-            return 'OUTRO'
-            
-        tipo = tipo_raw.upper().strip()
-        
-        # Mapeamento baseado em strings comuns de sistemas de varejo
-        if 'DEBITO' in tipo or 'DÉBITO' in tipo:
-            return 'DEBITO'
-        
-        if 'CREDITO' in tipo or 'CRÉDITO' in tipo:
-            if parcelas > 1:
-                return 'CREDITO_PARCELADO'
-            return 'CREDITO_AVISTA'
-            
-        # Cartão genérico mapeado para NÃO IDENTIFICADO para evitar distorção nas taxas (0%)
-        # até conciliação manual.
-        if 'CARTAO' in tipo or 'CARTÃO' in tipo:
-            return 'CARTAO_NAO_IDENTIFICADO'
+    def _mapear_tipo_pagamento(
+        self,
+        forma_raw: str | None,
+        subtipo_raw: str | None,
+    ) -> str:
+        """Mapeia a família e a modalidade comprovadas pelo Sales."""
+        forma = (forma_raw or '').upper().strip()
+        subtipo = (subtipo_raw or '').upper().strip()
 
-        if 'PIX' in tipo:
-            return 'PIX'
-            
-        if 'DINHEIRO' in tipo:
-            return 'DINHEIRO' 
-            
+        if forma == 'DINHEIRO':
+            return 'DINHEIRO'
+        if forma == 'PIX_CONTA':
+            return 'PIX_CONTA'
+        if forma == 'VOUCHER':
+            return 'VOUCHER'
+        if forma == 'CARTAO':
+            return {
+                'DEBITO': 'DEBITO',
+                'CREDITO': 'CREDITO_NAO_IDENTIFICADO',
+                'PIX_MAQUINA': 'PIX_MAQUINA',
+            }.get(subtipo, 'CARTAO_NAO_IDENTIFICADO')
         return 'OUTRO'
 
     def get_faturamento_por_loja(self, loja_id: int, mes: int, ano: int) -> List[FaturamentoItemDTO]:
@@ -61,7 +57,7 @@ class VendasClientSQL:
                 -- Pagamento 1
                 SELECT 
                     v.forma_pagamento as forma,
-                    COALESCE(v.subtipo_pagamento_1, 'GERAL') as bandeira,
+                    v.subtipo_pagamento_1 as subtipo,
                     v.valor_pagamento_1 as valor
                 FROM vendas_venda v
                 JOIN vendas_validas vv ON v.id = vv.id
@@ -72,7 +68,7 @@ class VendasClientSQL:
                 -- Pagamento 2
                 SELECT
                     v.forma_pagamento_2 as forma,
-                    COALESCE(v.subtipo_pagamento_2, 'GERAL') as bandeira,
+                    v.subtipo_pagamento_2 as subtipo,
                     v.valor_pagamento_2 as valor
                 FROM vendas_venda v
                 JOIN vendas_validas vv ON v.id = vv.id
@@ -80,10 +76,10 @@ class VendasClientSQL:
             )
             SELECT 
                 forma,
-                bandeira,
+                subtipo,
                 SUM(valor) as total
             FROM transacoes_unificadas
-            GROUP BY forma, bandeira
+            GROUP BY forma, subtipo
         """
         
         resultado_dtos = []
@@ -94,32 +90,38 @@ class VendasClientSQL:
                 rows = cursor.fetchall()
                 
                 for row in rows:
-                    tipo_raw = row[0] if row[0] else ''
-                    bandeira_raw = row[1] if row[1] else 'GERAL'
+                    forma_raw = row[0] if row[0] else ''
+                    subtipo_raw = row[1] if row[1] else ''
                     valor = row[2] if row[2] else Decimal('0.00')
                     
-                    # Assumimos 1 parcela por padrão já que a coluna não existe
-                    parcelas = 1 
-                    
-                    # Usa o mapeador atualizado
-                    tipo_mapeado = self._mapear_tipo_pagamento(tipo_raw, parcelas)
-                    
-                    # Normaliza bandeira
-                    bandeira_normalizada = bandeira_raw.upper().strip()
+                    # Compatibilidade do DTO: o Sales não fornece parcelas. O mapper
+                    # não usa este placeholder para inferir modalidade de crédito.
+                    parcelas = 1
+                    tipo_mapeado = self._mapear_tipo_pagamento(
+                        forma_raw,
+                        subtipo_raw,
+                    )
                     
                     dto = FaturamentoItemDTO(
                         tipo_pagamento=tipo_mapeado,
-                        bandeira=bandeira_normalizada,
+                        # O Venda atual não persiste a bandeira do cartão.
+                        bandeira='GERAL',
                         parcelas=parcelas,
                         valor_bruto=Decimal(valor)
                     )
                     resultado_dtos.append(dto)
-                    
-                    print(f"DEBUG SQL: Raw='{tipo_raw}' -> Mapeado='{tipo_mapeado}' | Valor={valor}")
 
-        except Exception as e:
-            print(f"Erro ao consultar banco vendas: {e}")
-            raise e
+                    logger.debug(
+                        "Pagamento Sales agregado: forma=%s subtipo=%s tipo=%s valor=%s",
+                        forma_raw,
+                        subtipo_raw,
+                        tipo_mapeado,
+                        valor,
+                    )
+
+        except Exception:
+            logger.exception("Erro ao consultar banco vendas")
+            raise
 
         return resultado_dtos
 
