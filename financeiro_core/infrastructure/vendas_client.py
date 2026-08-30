@@ -125,6 +125,26 @@ class VendasClientSQL:
 
         return resultado_dtos
 
+    def get_vendedores_ativos_por_loja(self, loja_id: int) -> list[dict]:
+        """Retorna a dimensão pública e somente leitura de vendedores ativos."""
+        query = """
+            SELECT id, nome, loja_id
+            FROM vendas_vendedor
+            WHERE loja_id = %s
+              AND ativo = TRUE
+            ORDER BY nome, id
+        """
+        try:
+            with connections['vendas'].cursor() as cursor:
+                cursor.execute(query, [loja_id])
+                return [
+                    {"id": row[0], "nome": row[1], "loja_id": row[2]}
+                    for row in cursor.fetchall()
+                ]
+        except Exception:
+            logger.exception("Erro ao consultar vendedores ativos no banco vendas")
+            raise
+
 class VendasAPIClientMock:
     """
     Mock mantido para compatibilidade.

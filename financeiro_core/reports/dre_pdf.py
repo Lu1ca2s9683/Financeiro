@@ -21,6 +21,7 @@ class DREPDFGenerator:
         self.qualidade_recebimentos = self.dre.get(
             "qualidade_recebimentos", {}
         )
+        self.pessoal_por_vendedor = self.dre.get("pessoal_por_vendedor", {})
         self.styles = getSampleStyleSheet()
 
     def gerar(self, response: HttpResponse):
@@ -270,6 +271,48 @@ class DREPDFGenerator:
         elements.append(t_dre)
         elements.append(Spacer(1, 20))
 
+        if Decimal(str(self.pessoal_por_vendedor.get("total_pessoal", 0))) > 0:
+            elements.append(Paragraph(
+                "Despesas com Pessoal por Vendedor",
+                heading_style,
+            ))
+            pessoal_data = [["Vendedor", "Valor"]]
+            for vendedor in self.pessoal_por_vendedor.get("vendedores", []):
+                pessoal_data.append([
+                    vendedor.get("vendedor_nome", ""),
+                    format_currency(vendedor.get("valor", 0)),
+                ])
+            nao_individualizado = self.pessoal_por_vendedor.get(
+                "total_nao_individualizado",
+                0,
+            )
+            if Decimal(str(nao_individualizado)) != Decimal('0.00'):
+                pessoal_data.append([
+                    "Não individualizado",
+                    format_currency(nao_individualizado),
+                ])
+            pessoal_data.append([
+                "Total Pessoal",
+                format_currency(
+                    self.pessoal_por_vendedor.get("total_pessoal", 0)
+                ),
+            ])
+            t_pessoal = Table(pessoal_data, colWidths=[430, 100], repeatRows=1)
+            t_pessoal.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1e293b")),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+                ('FONTSIZE', (0, 0), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('LINEBELOW', (0, 0), (-1, -1), 0.25, colors.lightgrey),
+                ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor("#f1f5f9")),
+                ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+            ]))
+            elements.append(t_pessoal)
+            elements.append(Spacer(1, 20))
+
         # D. Análise de Despesas
         elements.append(Paragraph("Análise Analítica das Despesas", heading_style))
 
@@ -286,6 +329,9 @@ class DREPDFGenerator:
                     fornec = lanc.get("fornecedor_nome")
                     if fornec:
                         origem += f" ({fornec[:15]})"
+                    vendedor_nome = lanc.get("vendedor_nome")
+                    if vendedor_nome:
+                        origem += f" - {vendedor_nome[:20]}"
 
                     lanc_data.append([
                         lanc.get("data_transacao", ""),

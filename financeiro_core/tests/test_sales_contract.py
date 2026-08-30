@@ -33,6 +33,7 @@ class CheckSalesContractCommandTest(TestCase):
             ],
             "vendas_caixadiario": ["id", "data"],
             "vendas_estorno": ["id", "venda_id"],
+            "vendas_vendedor": ["id", "loja_id", "nome", "ativo"],
         }
 
     def _configure_introspection(self, mock_connections, schema):
@@ -82,6 +83,21 @@ class CheckSalesContractCommandTest(TestCase):
 
         self.assertIn(
             "Missing required columns in vendas_venda: forma_pagamento",
+            str(context.exception),
+        )
+        mock_cursor.execute.assert_not_called()
+
+    @patch("financeiro_core.management.commands.check_sales_contract.connections")
+    def test_missing_seller_column(self, mock_connections):
+        schema = self._schema()
+        schema["vendas_vendedor"].remove("ativo")
+        mock_cursor = self._configure_introspection(mock_connections, schema)
+
+        with self.assertRaises(CommandError) as context:
+            call_command("check_sales_contract")
+
+        self.assertIn(
+            "Missing required columns in vendas_vendedor: ativo",
             str(context.exception),
         )
         mock_cursor.execute.assert_not_called()

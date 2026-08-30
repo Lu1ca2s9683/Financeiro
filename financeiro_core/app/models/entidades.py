@@ -136,6 +136,11 @@ class TaxaMaquininha(models.Model):
         unique_together = ('perfil', 'tipo', 'bandeira', 'parcela_inicial', 'parcela_final')
 
 class ContaPagar(models.Model):
+    ORIGEM_LANCAMENTO_CHOICES = [
+        ('MANUAL', 'Manual'),
+        ('OFX', 'Extrato OFX/OFC'),
+    ]
+
     descricao = models.CharField(max_length=255)
     loja_id_externo = models.IntegerField(verbose_name="ID da Loja", db_index=True)
     fornecedor = models.ForeignKey(Fornecedor, on_delete=models.PROTECT, null=True, blank=True)
@@ -151,6 +156,16 @@ class ContaPagar(models.Model):
     data_transacao = models.DateField(help_text="Data real em que o dinheiro saiu da conta", null=True, blank=True)
     
     conta_origem = models.ForeignKey(ContaBancaria, on_delete=models.PROTECT, null=True, blank=True)
+    origem_lancamento = models.CharField(
+        max_length=10,
+        choices=ORIGEM_LANCAMENTO_CHOICES,
+        default='MANUAL',
+    )
+    ofx_fitid = models.CharField(max_length=255, null=True, blank=True)
+    ofx_fingerprint = models.CharField(max_length=64, null=True, blank=True)
+    descricao_original_extrato = models.TextField(null=True, blank=True)
+    vendedor_id_externo = models.IntegerField(null=True, blank=True, db_index=True)
+    vendedor_nome_snapshot = models.CharField(max_length=255, null=True, blank=True)
     
     criado_em = models.DateTimeField(auto_now_add=True)
     criado_por_id = models.IntegerField(null=True, blank=True, help_text="ID do usuário no banco legado (vendas)")
@@ -158,6 +173,18 @@ class ContaPagar(models.Model):
     class Meta:
         verbose_name = "Conta a Pagar"
         verbose_name_plural = "Contas a Pagar"
+        constraints = [
+            models.UniqueConstraint(
+                fields=['conta_origem', 'ofx_fitid'],
+                condition=models.Q(ofx_fitid__isnull=False),
+                name='uniq_conta_ofx_fitid',
+            ),
+            models.UniqueConstraint(
+                fields=['conta_origem', 'ofx_fingerprint'],
+                condition=models.Q(ofx_fingerprint__isnull=False),
+                name='uniq_conta_ofx_fingerprint',
+            ),
+        ]
 
     def save(self, *args, **kwargs):
         self.valor_liquido = self.valor_bruto - self.valor_desconto + self.valor_acrescimo
@@ -199,6 +226,8 @@ class RateioDespesa(models.Model):
     descricao = models.CharField(max_length=255)
     valor = models.DecimalField(max_digits=12, decimal_places=2)
     categoria = models.ForeignKey(CategoriaDespesa, on_delete=models.SET_NULL, null=True, blank=True)
+    vendedor_id_externo = models.IntegerField(null=True, blank=True, db_index=True)
+    vendedor_nome_snapshot = models.CharField(max_length=255, null=True, blank=True)
 
     def __str__(self):
         return f"{self.descricao} - R$ {self.valor}"

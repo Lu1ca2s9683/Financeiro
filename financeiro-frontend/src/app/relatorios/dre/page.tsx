@@ -62,6 +62,7 @@ export default function DreGerencialPage() {
 
     const composicao = dre?.composicao_recebimentos;
     const qualidadeRecebimentos = dre?.qualidade_recebimentos;
+    const pessoalPorVendedor = dre?.pessoal_por_vendedor;
 
     return (
         <main className="p-4 sm:p-8 space-y-8 animate-enter max-w-5xl mx-auto font-sans">
@@ -305,6 +306,30 @@ export default function DreGerencialPage() {
                         </table>
                     </div>
 
+                    {pessoalPorVendedor && Number(pessoalPorVendedor.total_pessoal) > 0 && (
+                        <section className="bg-white border border-slate-200 shadow-sm p-4 sm:p-8">
+                            <h2 className="text-xl font-bold text-slate-900 mb-5 border-b border-slate-100 pb-4">DESPESAS COM PESSOAL POR VENDEDOR</h2>
+                            <div className="space-y-3 text-sm">
+                                {pessoalPorVendedor.vendedores.map(vendedor => (
+                                    <div key={`${vendedor.vendedor_id_externo}:${vendedor.vendedor_nome}`} className="flex justify-between gap-4 text-slate-700">
+                                        <span>{vendedor.vendedor_nome}</span>
+                                        <span className="font-mono font-medium">{formatCurrency(vendedor.valor)}</span>
+                                    </div>
+                                ))}
+                                {Number(pessoalPorVendedor.total_nao_individualizado) > 0 && (
+                                    <div className="flex justify-between gap-4 text-slate-700">
+                                        <span>Não individualizado</span>
+                                        <span className="font-mono font-medium">{formatCurrency(pessoalPorVendedor.total_nao_individualizado)}</span>
+                                    </div>
+                                )}
+                                <div className="flex justify-between gap-4 border-t border-slate-300 pt-3 font-bold text-slate-900">
+                                    <span>Total Pessoal</span>
+                                    <span className="font-mono">{formatCurrency(pessoalPorVendedor.total_pessoal)}</span>
+                                </div>
+                            </div>
+                        </section>
+                    )}
+
                     {/* D. Detalhamento expansível */}
                     <div className="bg-white border border-slate-200 shadow-sm p-4 sm:p-8">
                         <h2 className="text-xl font-bold text-slate-900 mb-6 border-b border-slate-100 pb-4">Análise Detalhada das Despesas</h2>
@@ -361,6 +386,7 @@ export default function DreGerencialPage() {
                                                                                     {lanc.tipo_origem}
                                                                                 </span>
                                                                                 {lanc.fornecedor_nome && <span className="ml-2">{lanc.fornecedor_nome}</span>}
+                                                                                {lanc.vendedor_nome && <span className="ml-2">Vendedor: {lanc.vendedor_nome}</span>}
                                                                             </td>
                                                                             <td className="py-2 text-right font-mono text-slate-900">{formatCurrency(lanc.valor)}</td>
                                                                         </tr>

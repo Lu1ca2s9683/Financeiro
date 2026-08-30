@@ -68,6 +68,20 @@ class DREService:
         valor_rateio_invalido = Decimal('0.00')
         valor_absoluto_ajustes_rateio = Decimal('0.00')
         valor_total_consideradas = Decimal('0.00')
+        pessoal_individualizado = {}
+        pessoal_nao_individualizado = Decimal('0.00')
+
+        def registrar_pessoal(grupo, valor, vendedor_id, vendedor_nome):
+            nonlocal pessoal_nao_individualizado
+            if grupo != 'PESSOAL':
+                return
+            if vendedor_id is not None and vendedor_nome:
+                chave = (vendedor_id, vendedor_nome)
+                pessoal_individualizado[chave] = (
+                    pessoal_individualizado.get(chave, Decimal('0.00')) + valor
+                )
+            else:
+                pessoal_nao_individualizado += valor
 
         for despesa in despesas_qs:
             valor_liq = despesa.valor_liquido
@@ -84,6 +98,12 @@ class DREService:
                 cat_nome = despesa.categoria.nome
 
                 grupos_totais[grupo] = grupos_totais.get(grupo, Decimal('0.00')) + valor_liq
+                registrar_pessoal(
+                    grupo,
+                    valor_liq,
+                    despesa.vendedor_id_externo,
+                    despesa.vendedor_nome_snapshot,
+                )
 
                 self._adicionar_lancamento(
                     estrutura_analitica, grupo, cat_id, cat_nome,
@@ -94,7 +114,17 @@ class DREService:
                         "data_transacao": str(despesa.data_transacao),
                         "descricao": despesa.descricao,
                         "fornecedor_nome": despesa.fornecedor.razao_social if despesa.fornecedor else None,
-                        "valor": valor_liq
+                        "valor": valor_liq,
+                        "vendedor_id_externo": (
+                            despesa.vendedor_id_externo
+                            if grupo == 'PESSOAL'
+                            else None
+                        ),
+                        "vendedor_nome": (
+                            despesa.vendedor_nome_snapshot
+                            if grupo == 'PESSOAL'
+                            else None
+                        ),
                     },
                     valor_liq
                 )
@@ -120,6 +150,12 @@ class DREService:
                         cat_nome = cat.nome
 
                         grupos_totais[grupo] = grupos_totais.get(grupo, Decimal('0.00')) + v_split
+                        registrar_pessoal(
+                            grupo,
+                            v_split,
+                            split.vendedor_id_externo,
+                            split.vendedor_nome_snapshot,
+                        )
 
                         self._adicionar_lancamento(
                             estrutura_analitica, grupo, cat_id, cat_nome,
@@ -132,6 +168,16 @@ class DREService:
                                 "fornecedor_nome": despesa.fornecedor.razao_social if despesa.fornecedor else None,
                                 "valor": v_split,
                                 "ajuste_conservacao": ajuste,
+                                "vendedor_id_externo": (
+                                    split.vendedor_id_externo
+                                    if grupo == 'PESSOAL'
+                                    else None
+                                ),
+                                "vendedor_nome": (
+                                    split.vendedor_nome_snapshot
+                                    if grupo == 'PESSOAL'
+                                    else None
+                                ),
                             },
                             v_split
                         )
@@ -145,6 +191,12 @@ class DREService:
                     cat_nome = despesa.categoria.nome
 
                     grupos_totais[grupo] = grupos_totais.get(grupo, Decimal('0.00')) + valor_liq
+                    registrar_pessoal(
+                        grupo,
+                        valor_liq,
+                        despesa.vendedor_id_externo,
+                        despesa.vendedor_nome_snapshot,
+                    )
 
                     self._adicionar_lancamento(
                         estrutura_analitica, grupo, cat_id, cat_nome,
@@ -155,7 +207,17 @@ class DREService:
                             "data_transacao": str(despesa.data_transacao),
                             "descricao": f"[RATEIO INVÁLIDO] {despesa.descricao}",
                             "fornecedor_nome": despesa.fornecedor.razao_social if despesa.fornecedor else None,
-                            "valor": valor_liq
+                            "valor": valor_liq,
+                            "vendedor_id_externo": (
+                                despesa.vendedor_id_externo
+                                if grupo == 'PESSOAL'
+                                else None
+                            ),
+                            "vendedor_nome": (
+                                despesa.vendedor_nome_snapshot
+                                if grupo == 'PESSOAL'
+                                else None
+                            ),
                         },
                         valor_liq
                     )
@@ -168,6 +230,27 @@ class DREService:
         lucro_bruto = receita_liquida - custos_produtos
 
         despesas_pessoal = grupos_totais.get('PESSOAL', Decimal('0.00'))
+        vendedores_pessoal = [
+            {
+                "vendedor_id_externo": vendedor_id,
+                "vendedor_nome": vendedor_nome,
+                "valor": valor,
+            }
+            for (vendedor_id, vendedor_nome), valor in sorted(
+                pessoal_individualizado.items(),
+                key=lambda item: (item[0][1].casefold(), item[0][0]),
+            )
+        ]
+        total_pessoal_individualizado = sum(
+            (item["valor"] for item in vendedores_pessoal),
+            Decimal('0.00'),
+        )
+        pessoal_por_vendedor = {
+            "total_pessoal": despesas_pessoal,
+            "total_individualizado": total_pessoal_individualizado,
+            "total_nao_individualizado": pessoal_nao_individualizado,
+            "vendedores": vendedores_pessoal,
+        }
         despesas_administrativas = grupos_totais.get('ADMINISTRATIVA', Decimal('0.00'))
         despesas_marketing = grupos_totais.get('MARKETING', Decimal('0.00'))
 
@@ -296,6 +379,7 @@ class DREService:
             },
             "composicao_recebimentos": composicao_recebimentos,
             "qualidade_recebimentos": qualidade_recebimentos,
+            "pessoal_por_vendedor": pessoal_por_vendedor,
             "linhas": [
                 {"codigo": "1", "descricao": "Receita Bruta Operacional", "tipo": "TOTAL", "nivel": 0, "ordem": 1, "valor": faturamento_bruto, "percentual_receita": calc_perc(faturamento_bruto)},
                 {"codigo": "2", "descricao": "(-) Deduções e Impostos sobre Vendas", "tipo": "SUBTRACAO", "nivel": 1, "ordem": 2, "valor": impostos, "percentual_receita": calc_perc(impostos)},

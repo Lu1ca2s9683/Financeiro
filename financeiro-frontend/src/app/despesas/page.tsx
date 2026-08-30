@@ -2,7 +2,15 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, Despesa, DespesaDetail } from '@/services/api';
+import {
+  api,
+  Categoria,
+  ContaBancaria,
+  Despesa,
+  DespesaDetail,
+  ExtratoItem,
+  VendedorAtivo,
+} from '@/services/api';
 import Link from 'next/link';
 import { Plus, Trash2, Pencil, Search, Filter, AlertCircle, X } from 'lucide-react';
 
@@ -10,6 +18,22 @@ import { useDateFilter } from '@/contexts/DateFilterContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { PeriodSelector } from '@/components/PeriodSelector';
 import { DespesaForm } from '@/components/DespesaForm';
+import { centsToDecimalString, formatCents, parseMoneyToCents } from '@/utils/money';
+
+interface RateioImportado {
+  descricao: string;
+  valor: string;
+  categoria_id: string;
+  vendedor_id_externo: string;
+}
+
+interface DespesaImportada extends Omit<ExtratoItem, 'categoria_sugerida_id'> {
+  _tempId: number;
+  expanded: boolean;
+  categoria_sugerida_id?: number | string | null;
+  vendedor_id_externo: string;
+  rateios: RateioImportado[];
+}
 
 export default function DespesasPage() {
 
@@ -22,12 +46,30 @@ export default function DespesasPage() {
   const [totalMes, setTotalMes] = useState(0);
   
   // Estado para extrato importado pendente de categorização
-  const [importedDespesas, setImportedDespesas] = useState<any[]>([]);
-  const [categoriasPendentes, setCategoriasPendentes] = useState<any[]>([]);
+  const [importedDespesas, setImportedDespesas] = useState<DespesaImportada[]>([]);
+  const [categoriasPendentes, setCategoriasPendentes] = useState<Categoria[]>([]);
+  const [contasBancarias, setContasBancarias] = useState<ContaBancaria[]>([]);
+  const [contaOrigemId, setContaOrigemId] = useState('');
+  const [vendedores, setVendedores] = useState<VendedorAtivo[]>([]);
 
   useEffect(() => {
       api.getCategorias().then(setCategoriasPendentes).catch(console.error);
   }, []);
+
+  useEffect(() => {
+      if (!activeLoja?.id) {
+          setContasBancarias([]);
+          setVendedores([]);
+          setContaOrigemId('');
+          return;
+      }
+      api.getContasBancarias()
+          .then(contas => setContasBancarias(contas.filter(conta => conta.ativo)))
+          .catch(console.error);
+      api.getVendedoresAtivos(activeLoja.id).then(setVendedores).catch(console.error);
+      setContaOrigemId('');
+      setImportedDespesas([]);
+  }, [activeLoja?.id]);
 
   // Estados para edição
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -80,22 +122,50 @@ export default function DespesasPage() {
 
   const salvarImportada = async (index: number) => {
       const item = importedDespesas[index];
+      if (item.ja_importada) return;
+      if (!contaOrigemId) {
+          alert('Selecione a conta bancária do extrato.');
+          return;
+      }
       if (!item.categoria_sugerida_id) {
           alert('Por favor, selecione uma categoria para a despesa.');
           return;
       }
       try {
+          const valorCentavos = parseMoneyToCents(item.valor);
+          const rateiosCentavos = item.rateios.map(rateio => parseMoneyToCents(rateio.valor));
+          if (valorCentavos === null || valorCentavos <= 0) {
+              throw new Error('Valor importado inválido.');
+          }
+          if (item.rateios.length > 0 && (
+              rateiosCentavos.some(valor => valor === null || valor <= 0)
+              || rateiosCentavos.reduce<number>((total, valor) => total + (valor ?? 0), 0) !== valorCentavos
+          )) {
+              throw new Error('O rateio deve consumir exatamente o valor da despesa.');
+          }
           const payload = {
               descricao: item.descricao_original,
-              valor: Math.abs(Number(item.valor)),
-              categoria_id: item.categoria_sugerida_id,
+              valor: centsToDecimalString(valorCentavos),
+              categoria_id: Number(item.categoria_sugerida_id),
               loja_id: activeLoja?.id || Number(localStorage.getItem('active_loja_id')) || 1,
               data_competencia: item.data_transacao,
               data_transacao: item.data_transacao,
-              rateios: item.rateios.map((r: any) => ({
+              conta_origem_id: Number(contaOrigemId),
+              origem_lancamento: 'OFX',
+              ofx_fitid: item.fitid || null,
+              ofx_fingerprint: item.fingerprint,
+              descricao_original_extrato: item.descricao_original,
+              ofx_import_token: item.ofx_import_token,
+              vendedor_id_externo: item.rateios.length === 0 && item.vendedor_id_externo
+                  ? Number(item.vendedor_id_externo)
+                  : null,
+              rateios: item.rateios.map((r, rateioIndex) => ({
                   descricao: r.descricao,
-                  valor: parseFloat(r.valor.replace(',', '.')),
-                  categoria_id: r.categoria_id ? Number(r.categoria_id) : undefined
+                  valor: centsToDecimalString(rateiosCentavos[rateioIndex] as number),
+                  categoria_id: r.categoria_id ? Number(r.categoria_id) : undefined,
+                  vendedor_id_externo: r.vendedor_id_externo
+                      ? Number(r.vendedor_id_externo)
+                      : null,
               }))
           };
           await api.createDespesa(payload);
@@ -105,7 +175,7 @@ export default function DespesasPage() {
           carregar(); // Recarrega a tabela principal
       } catch (error) {
           console.error(error);
-          alert('Erro ao salvar despesa importada.');
+          alert(error instanceof Error ? error.message : 'Erro ao salvar despesa importada.');
       }
   };
 
@@ -115,7 +185,12 @@ export default function DespesasPage() {
       setImportedDespesas(newImported);
   };
 
-  const updateImportedRateio = (index: number, rateioIndex: number, field: string, value: string) => {
+  const updateImportedRateio = (
+      index: number,
+      rateioIndex: number,
+      field: keyof RateioImportado,
+      value: string
+  ) => {
       const newImported = [...importedDespesas];
       newImported[index].rateios[rateioIndex][field] = value;
       setImportedDespesas(newImported);
@@ -123,9 +198,34 @@ export default function DespesasPage() {
 
   const addImportedRateio = (index: number) => {
       const newImported = [...importedDespesas];
-      newImported[index].rateios.push({ descricao: '', valor: '', categoria_id: '' });
+      newImported[index].vendedor_id_externo = '';
+      newImported[index].rateios.push({
+          descricao: '',
+          valor: '',
+          categoria_id: '',
+          vendedor_id_externo: '',
+      });
       newImported[index].expanded = true;
       setImportedDespesas(newImported);
+  };
+
+  const categoriaPorId = (id: number | string | null | undefined) =>
+      categoriasPendentes.find(categoria => String(categoria.id) === String(id));
+
+  const categoriaEfetivaRateio = (item: DespesaImportada, rateio: RateioImportado) =>
+      categoriaPorId(rateio.categoria_id || item.categoria_sugerida_id);
+
+  const rateioImportadoEmCentavos = (item: DespesaImportada) => {
+      const valorTotal = parseMoneyToCents(item.valor) ?? 0;
+      const valores = item.rateios.map(rateio => parseMoneyToCents(rateio.valor));
+      const totalRateado = valores.reduce<number>((total, valor) => total + (valor ?? 0), 0);
+      return {
+          valorTotal,
+          totalRateado,
+          saldo: valorTotal - totalRateado,
+          valido: item.rateios.length === 0
+              || (valores.every(valor => valor !== null && valor > 0) && valorTotal === totalRateado),
+      };
   };
   const excluir = async (id: number) => {
     if (!confirm('Tem certeza que deseja excluir esta despesa?')) return;
@@ -171,6 +271,20 @@ export default function DespesasPage() {
 
           {canEdit && (
             <>
+              <select
+                  aria-label="Conta bancária do extrato"
+                  className="w-full sm:w-64 bg-white text-slate-700 border border-slate-300 px-3 py-2.5 rounded-lg shadow-sm"
+                  value={contaOrigemId}
+                  onChange={event => {
+                      setContaOrigemId(event.target.value);
+                      setImportedDespesas([]);
+                  }}
+              >
+                  <option value="">Conta bancária do extrato...</option>
+                  {contasBancarias.map(conta => (
+                      <option key={conta.id} value={conta.id}>{conta.nome}</option>
+                  ))}
+              </select>
               <input
                  type="file"
                  id="import-extrato"
@@ -184,27 +298,33 @@ export default function DespesasPage() {
                                 alert("Erro: Selecione uma loja antes de importar o extrato.");
                                 return;
                             }
-
-                            const extratoTransacoes = await api.importarExtratoDespesas(activeLoja.id, file);
-                            const saidas = extratoTransacoes.filter((t) => t.tipo === 'SAIDA');
-
-                            // PROTEÇÃO CONTRA DUPLICATAS (FRONTEND)
-                            const transacoesFiltradas = saidas.filter((t) => {
-                                const isDuplicata = despesas.some(d =>
-                                    d.data_transacao === t.data_transacao &&
-                                    d.descricao === t.descricao_original
-                                );
-                                return !isDuplicata;
-                            });
-
-                            setImportedDespesas(transacoesFiltradas.map((t, idx) => ({ ...t, _tempId: idx, expanded: false, rateios: [] })));
-
-                            const ignoradas = saidas.length - transacoesFiltradas.length;
-                            let msg = `Extrato lido com sucesso! ${transacoesFiltradas.length} saídas aguardam categorização.`;
-                            if (ignoradas > 0) {
-                                msg += `\n\n(${ignoradas} transações já estavam registradas e foram ignoradas automaticamente.)`;
+                            if (!contaOrigemId) {
+                                alert("Selecione a conta bancária que gerou o extrato.");
+                                e.target.value = '';
+                                return;
                             }
-                            alert(msg);
+
+                            const extratoTransacoes = await api.importarExtratoDespesas(
+                                activeLoja.id,
+                                Number(contaOrigemId),
+                                file
+                            );
+                            const saidas = extratoTransacoes.filter((t) => t.tipo === 'SAIDA');
+                            setImportedDespesas(saidas.map((t, idx) => ({
+                                ...t,
+                                _tempId: idx,
+                                expanded: false,
+                                vendedor_id_externo: '',
+                                rateios: [],
+                            })));
+
+                            const jaImportadas = saidas.filter(item => item.ja_importada).length;
+                            alert(
+                                `Extrato lido com sucesso! ${saidas.length - jaImportadas} saídas aguardam categorização.`
+                                + (jaImportadas > 0
+                                    ? `\n\n${jaImportadas} transações já existem e estão identificadas na lista.`
+                                    : '')
+                            );
                         } catch (error) {
                             console.error('Erro na importação:', error);
                             alert('Erro de conexão ao tentar importar extrato.');
@@ -214,7 +334,8 @@ export default function DespesasPage() {
               />
               <label
                   htmlFor="import-extrato"
-                  className="w-full sm:w-auto bg-white text-slate-700 border border-slate-300 px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 hover:bg-slate-50 transition shadow-sm font-medium cursor-pointer"
+                  aria-disabled={!contaOrigemId}
+                  className={`w-full sm:w-auto bg-white text-slate-700 border border-slate-300 px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 transition shadow-sm font-medium ${contaOrigemId ? 'hover:bg-slate-50 cursor-pointer' : 'opacity-50 cursor-not-allowed'}`}
               >
                   <Plus size={18} /> Importar Extrato
               </label>
@@ -239,23 +360,41 @@ export default function DespesasPage() {
                   Despesas Importadas Pendentes de Categorização ({importedDespesas.length})
               </h2>
               <div className="space-y-4">
-                  {importedDespesas.map((item, index) => (
-                      <div key={item._tempId} className="bg-white border border-amber-100 rounded-lg p-4 shadow-sm flex flex-col gap-4">
+                  {importedDespesas.map((item, index) => {
+                      const rateioInfo = rateioImportadoEmCentavos(item);
+                      const categoriaPrincipalImportada = categoriaPorId(item.categoria_sugerida_id);
+                      return (
+                      <div key={item._tempId} className={`bg-white border rounded-lg p-4 shadow-sm flex flex-col gap-4 ${item.ja_importada ? 'border-slate-200 opacity-70' : 'border-amber-100'}`}>
+                          {item.ja_importada && (
+                              <div className="rounded-md bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700">
+                                  Esta transação já existe no Financeiro
+                                  {item.duplicate_reason ? ` (${item.duplicate_reason})` : ''}.
+                              </div>
+                          )}
                           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                               <div className="flex-1">
                                   <div className="text-xs text-slate-500 font-mono mb-1">{item.data_transacao}</div>
                                   <div className="font-semibold text-slate-900">{item.descricao_original}</div>
                               </div>
                               <div className="font-mono font-bold text-rose-600 text-lg">
-                                  - {Number(item.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  - {formatCents(rateioInfo.valorTotal)}
                               </div>
                               <div className="w-full md:w-64">
                                   <select
+                                      disabled={item.ja_importada}
                                       className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-sm"
                                       value={item.categoria_sugerida_id || ''}
                                       onChange={(e) => {
                                           const newImported = [...importedDespesas];
                                           newImported[index].categoria_sugerida_id = e.target.value;
+                                          if (categoriaPorId(e.target.value)?.grupo_contabil !== 'PESSOAL') {
+                                              newImported[index].vendedor_id_externo = '';
+                                              newImported[index].rateios = newImported[index].rateios.map(rateio => (
+                                                  rateio.categoria_id
+                                                      ? rateio
+                                                      : {...rateio, vendedor_id_externo: ''}
+                                              ));
+                                          }
                                           setImportedDespesas(newImported);
                                       }}
                                   >
@@ -264,12 +403,34 @@ export default function DespesasPage() {
                                           <option key={c.id} value={c.id}>{c.nome}</option>
                                       ))}
                                   </select>
+                                  {categoriaPrincipalImportada?.grupo_contabil === 'PESSOAL' && item.rateios.length === 0 && (
+                                      <select
+                                          disabled={item.ja_importada}
+                                          aria-label={`Vendedor da transação ${index + 1}`}
+                                          className="mt-2 w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                                          value={item.vendedor_id_externo}
+                                          onChange={event => {
+                                              const newImported = [...importedDespesas];
+                                              newImported[index].vendedor_id_externo = event.target.value;
+                                              setImportedDespesas(newImported);
+                                          }}
+                                      >
+                                          <option value="">Sem vendedor</option>
+                                          {vendedores.map(vendedor => (
+                                              <option key={vendedor.id} value={vendedor.id}>{vendedor.nome}</option>
+                                          ))}
+                                      </select>
+                                  )}
                               </div>
                               <div className="flex gap-2 w-full md:w-auto">
-                                  <button onClick={() => toggleImportedExpanded(index)} className="px-3 py-2 text-sm font-medium border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition">
+                                  <button disabled={item.ja_importada} onClick={() => toggleImportedExpanded(index)} className="px-3 py-2 text-sm font-medium border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition disabled:cursor-not-allowed">
                                       Rateio ({item.rateios.length})
                                   </button>
-                                  <button onClick={() => salvarImportada(index)} className="px-4 py-2 text-sm font-medium bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition">
+                                  <button
+                                      disabled={item.ja_importada || !rateioInfo.valido}
+                                      onClick={() => salvarImportada(index)}
+                                      className="px-4 py-2 text-sm font-medium bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
                                       Salvar
                                   </button>
                               </div>
@@ -287,12 +448,12 @@ export default function DespesasPage() {
                                       <p className="text-xs text-slate-500">Nenhum rateio configurado. O valor total irá para a categoria principal.</p>
                                   ) : (
                                       <div className="space-y-3">
-                                          {item.rateios.map((r: any, rIdx: number) => (
-                                              <div key={rIdx} className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                          {item.rateios.map((r, rIdx) => (
+                                              <div key={rIdx} className="grid grid-cols-1 md:grid-cols-5 gap-3">
                                                   <input
                                                       type="text"
                                                       placeholder="Descrição específica"
-                                                      className="col-span-2 text-sm border border-slate-300 rounded px-3 py-2"
+                                                      className="md:col-span-2 text-sm border border-slate-300 rounded px-3 py-2"
                                                       value={r.descricao}
                                                       onChange={(e) => updateImportedRateio(index, rIdx, 'descricao', e.target.value)}
                                                   />
@@ -304,17 +465,37 @@ export default function DespesasPage() {
                                                       value={r.valor}
                                                       onChange={(e) => updateImportedRateio(index, rIdx, 'valor', e.target.value)}
                                                   />
+                                                  <select
+                                                      className="w-full text-sm border border-slate-300 rounded px-3 py-2"
+                                                      value={r.categoria_id}
+                                                      onChange={(e) => {
+                                                          const newImported = [...importedDespesas];
+                                                          newImported[index].rateios[rIdx].categoria_id = e.target.value;
+                                                          if (categoriaPorId(e.target.value || item.categoria_sugerida_id)?.grupo_contabil !== 'PESSOAL') {
+                                                              newImported[index].rateios[rIdx].vendedor_id_externo = '';
+                                                          }
+                                                          setImportedDespesas(newImported);
+                                                      }}
+                                                  >
+                                                      <option value="">(Usar principal)</option>
+                                                      {categoriasPendentes.map(c => (
+                                                          <option key={c.id} value={c.id}>{c.nome}</option>
+                                                      ))}
+                                                  </select>
                                                   <div className="flex gap-2">
-                                                      <select
-                                                          className="w-full text-sm border border-slate-300 rounded px-3 py-2"
-                                                          value={r.categoria_id}
-                                                          onChange={(e) => updateImportedRateio(index, rIdx, 'categoria_id', e.target.value)}
-                                                      >
-                                                          <option value="">(Usar principal)</option>
-                                                          {categoriasPendentes.map(c => (
-                                                              <option key={c.id} value={c.id}>{c.nome}</option>
-                                                          ))}
-                                                      </select>
+                                                      {categoriaEfetivaRateio(item, r)?.grupo_contabil === 'PESSOAL' ? (
+                                                          <select
+                                                              aria-label={`Vendedor do rateio importado ${rIdx + 1}`}
+                                                              className="w-full text-sm border border-slate-300 rounded px-3 py-2"
+                                                              value={r.vendedor_id_externo}
+                                                              onChange={event => updateImportedRateio(index, rIdx, 'vendedor_id_externo', event.target.value)}
+                                                          >
+                                                              <option value="">Sem vendedor</option>
+                                                              {vendedores.map(vendedor => (
+                                                                  <option key={vendedor.id} value={vendedor.id}>{vendedor.nome}</option>
+                                                              ))}
+                                                          </select>
+                                                      ) : <span className="w-full px-2 py-2 text-xs text-slate-400">Sem vendedor</span>}
                                                       <button
                                                           onClick={() => {
                                                               const newImported = [...importedDespesas];
@@ -328,12 +509,20 @@ export default function DespesasPage() {
                                                   </div>
                                               </div>
                                           ))}
+                                          <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm space-y-2">
+                                              <div className="flex justify-between"><span>Valor da despesa</span><strong>{formatCents(rateioInfo.valorTotal)}</strong></div>
+                                              <div className="flex justify-between"><span>Total rateado</span><strong>{formatCents(rateioInfo.totalRateado)}</strong></div>
+                                              <div className={`flex justify-between border-t border-slate-200 pt-2 ${rateioInfo.saldo === 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                                                  <span>Saldo a ratear</span><strong>{formatCents(rateioInfo.saldo)}</strong>
+                                              </div>
+                                          </div>
                                       </div>
                                   )}
                               </div>
                           )}
                       </div>
-                  ))}
+                      );
+                  })}
               </div>
           </div>
       )}

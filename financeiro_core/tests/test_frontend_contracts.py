@@ -55,7 +55,8 @@ class FrontendPhase1ContractTest(SimpleTestCase):
 
         self.assertIn("/extrato/importar-despesas/${lojaId}/", api_source)
         self.assertNotIn("/import-statement/", api_source)
-        self.assertIn("api.importarExtratoDespesas(activeLoja.id, file)", despesas_source)
+        self.assertIn("api.importarExtratoDespesas(", despesas_source)
+        self.assertIn("Number(contaOrigemId)", despesas_source)
         self.assertNotIn("onrender.com/api/financeiro", despesas_source)
 
     def test_transfer_frontend_uses_canonical_data_field(self):
@@ -95,3 +96,46 @@ class FrontendPhase1ContractTest(SimpleTestCase):
         self.assertNotIn("Baixar Excel", source)
         self.assertNotIn("detalhado por competência", normalized)
         self.assertNotIn("centro de custo", normalized)
+
+    def test_ofx_workflow_uses_account_and_backend_duplicate_identity(self):
+        api_source = self._read_frontend(Path("services") / "api.ts")
+        despesas_source = self._read_frontend(Path("app") / "despesas" / "page.tsx")
+
+        self.assertIn("contaOrigemId", api_source)
+        self.assertIn("ofx_fitid", despesas_source)
+        self.assertIn("ofx_fingerprint", despesas_source)
+        self.assertIn("ja_importada", despesas_source)
+        self.assertIn("ofx_import_token", api_source)
+        self.assertIn("ofx_import_token", despesas_source)
+        self.assertIn("Esta transação já existe no Financeiro", despesas_source)
+        self.assertNotIn(
+            "d.data_transacao === t.data_transacao",
+            despesas_source,
+        )
+
+    def test_expense_forms_use_cent_safe_rateio_and_personnel_sellers(self):
+        form_source = self._read_frontend(Path("components") / "DespesaForm.tsx")
+        despesas_source = self._read_frontend(Path("app") / "despesas" / "page.tsx")
+        money_source = self._read_frontend(Path("utils") / "money.ts")
+
+        for source in (form_source, despesas_source):
+            self.assertIn("Saldo a ratear", source)
+            self.assertIn("vendedor_id_externo", source)
+            self.assertNotIn("parseFloat", source)
+        self.assertIn("parseMoneyToCents", money_source)
+        self.assertIn("centsToDecimalString", money_source)
+        self.assertIn("valorLiquidoAlvoCentavos", form_source)
+        self.assertIn("initialData?.origem_lancamento === 'OFX'", form_source)
+        self.assertIn("Estes dados vieram do extrato bancário", form_source)
+
+    def test_dre_frontend_exposes_personnel_by_seller(self):
+        api_source = self._read_frontend(Path("services") / "api.ts")
+        dre_source = self._read_frontend(Path("app") / "relatorios" / "dre" / "page.tsx")
+
+        self.assertIn("pessoal_por_vendedor", api_source)
+        self.assertIn("DESPESAS COM PESSOAL POR VENDEDOR", dre_source)
+        self.assertIn("Não individualizado", dre_source)
+        self.assertIn(
+            "`${vendedor.vendedor_id_externo}:${vendedor.vendedor_nome}`",
+            dre_source,
+        )

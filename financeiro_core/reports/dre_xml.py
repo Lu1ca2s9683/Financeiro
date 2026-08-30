@@ -63,6 +63,22 @@ class DREXMLGenerator:
                 qualidade_recebimentos_data,
             )
 
+        pessoal_data = self.dre.get("pessoal_por_vendedor")
+        if pessoal_data:
+            pessoal = ET.SubElement(root, "pessoal_por_vendedor")
+            for campo in (
+                "total_pessoal",
+                "total_individualizado",
+                "total_nao_individualizado",
+            ):
+                ET.SubElement(pessoal, campo).text = self._valor_serializado(
+                    pessoal_data.get(campo, Decimal('0.00'))
+                )
+            vendedores = ET.SubElement(pessoal, "vendedores")
+            for vendedor_data in pessoal_data.get("vendedores", []):
+                vendedor = ET.SubElement(vendedores, "vendedor")
+                self._adicionar_estrutura(vendedor, vendedor_data)
+
         # C. Linhas
         linhas_data = self.dre.get("linhas", [])
         linhas = ET.SubElement(root, "linhas")
@@ -109,6 +125,13 @@ class DREXMLGenerator:
                     ET.SubElement(lancamento, "descricao").text = lanc_data.get("descricao", "")
                     fornec = lanc_data.get("fornecedor_nome")
                     ET.SubElement(lancamento, "fornecedor").text = fornec if fornec else ""
+                    vendedor_id = lanc_data.get("vendedor_id_externo")
+                    ET.SubElement(lancamento, "vendedor_id_externo").text = (
+                        str(vendedor_id) if vendedor_id is not None else ""
+                    )
+                    ET.SubElement(lancamento, "vendedor_nome").text = (
+                        lanc_data.get("vendedor_nome") or ""
+                    )
                     ET.SubElement(lancamento, "valor").text = f"{float(lanc_data.get('valor', 0)):.2f}"
 
         # E. Qualidade Dados

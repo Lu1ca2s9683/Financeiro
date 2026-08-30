@@ -29,6 +29,7 @@ class Command(BaseCommand):
             ],
             "vendas_caixadiario": ["id", "data"],
             "vendas_estorno": ["id", "venda_id"],
+            "vendas_vendedor": ["id", "loja_id", "nome", "ativo"],
         }
 
         try:
