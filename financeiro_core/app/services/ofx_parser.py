@@ -1,8 +1,25 @@
+import hashlib
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import re
 
 class OfxParserService:
+    @staticmethod
+    def _extrair_campo(block: str, campo: str) -> str | None:
+        match = re.search(
+            rf'<{campo}>\s*([^<\r\n]*)',
+            block,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return None
+        valor = match.group(1).strip()
+        return valor or None
+
+    @staticmethod
+    def _normalizar_texto(valor: str | None) -> str:
+        return ' '.join((valor or '').upper().split())
+
     @staticmethod
     def parse(file_content: str) -> list[dict]:
         """
@@ -10,6 +27,7 @@ class OfxParserService:
         Each transaction has: data_transacao, descricao_original, valor, tipo (ENTRADA/SAIDA)
         """
         transactions = []
+        ocorrencias: dict[str, int] = {}
 
         stmtrs_blocks = re.split(r'<STMTTRN>', file_content, flags=re.IGNORECASE)
 
@@ -26,24 +44,61 @@ class OfxParserService:
                 amt_match = re.search(r'<TRNAMT>\s*([-\d\.]+)', block, flags=re.IGNORECASE)
                 if not amt_match:
                     continue
-                amt = Decimal(amt_match.group(1))
-
-                # Find description (MEMO or NAME)
-                desc_match = re.search(
-                    r'<(?:MEMO|NAME)>\s*([^<\r\n]*)',
-                    block,
-                    flags=re.IGNORECASE,
+                amt = Decimal(amt_match.group(1)).quantize(
+                    Decimal('0.01'),
+                    rounding=ROUND_HALF_UP,
                 )
-                desc = desc_match.group(1).strip() if desc_match else "Sem descrição"
+
+                trntype = OfxParserService._extrair_campo(block, 'TRNTYPE')
+                fitid = OfxParserService._extrair_campo(block, 'FITID')
+                checknum = OfxParserService._extrair_campo(block, 'CHECKNUM')
+                refnum = OfxParserService._extrair_campo(block, 'REFNUM')
+                name = OfxParserService._extrair_campo(block, 'NAME')
+                memo = OfxParserService._extrair_campo(block, 'MEMO')
+                desc = memo or name or "Sem descrição"
+
+                if fitid:
+                    representacao_identidade = (
+                        f"FITID|{OfxParserService._normalizar_texto(fitid)}"
+                    )
+                else:
+                    assinatura_base = '|'.join([
+                        dt.isoformat(),
+                        format(amt, 'f'),
+                        OfxParserService._normalizar_texto(trntype),
+                        OfxParserService._normalizar_texto(name),
+                        OfxParserService._normalizar_texto(memo),
+                        OfxParserService._normalizar_texto(checknum),
+                        OfxParserService._normalizar_texto(refnum),
+                    ])
+                    ocorrencias[assinatura_base] = (
+                        ocorrencias.get(assinatura_base, 0) + 1
+                    )
+                    representacao_identidade = (
+                        f"{assinatura_base}#{ocorrencias[assinatura_base]}"
+                    )
+
+                fingerprint = hashlib.sha256(
+                    representacao_identidade.encode('utf-8')
+                ).hexdigest()
 
                 tipo = "SAIDA" if amt < 0 else "ENTRADA"
 
-                transactions.append({
-                    "data_transacao": dt,
-                    "descricao_original": desc,
-                    "valor": abs(amt),
-                    "tipo": tipo
-                })
+                transactions.append(
+                    {
+                        "data_transacao": dt,
+                        "descricao_original": desc,
+                        "valor": abs(amt),
+                        "tipo": tipo,
+                        "fitid": fitid,
+                        "fingerprint": fingerprint,
+                        "trntype": trntype,
+                        "checknum": checknum,
+                        "refnum": refnum,
+                        "name": name,
+                        "memo": memo,
+                    }
+                )
 
             except (InvalidOperation, ValueError):
                 continue

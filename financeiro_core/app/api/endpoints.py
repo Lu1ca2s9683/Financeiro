@@ -14,11 +14,12 @@ class DashboardResumoOut(Schema):
 
 from ninja.errors import HttpError
 from typing import List, Optional
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from django.shortcuts import get_object_or_404
 from django.http import Http404
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.core.serializers.json import DjangoJSONEncoder
+from django.core import signing
 from datetime import date, datetime, time
 from django.utils import timezone
 
@@ -33,6 +34,9 @@ from ..models.entidades import (
     MovimentacaoCaixa
 )
 from .security import AuthBearer, check_permission
+from financeiro_core.infrastructure.vendas_client import VendasClientSQL
+
+OFX_IMPORT_TOKEN_SALT = "financeiro.ofx.import.v1"
 
 # Instância do Router
 router = Router(auth=AuthBearer())
@@ -211,7 +215,17 @@ class ExtratoItemOut(Schema):
     descricao_original: str
     valor: Decimal
     tipo: str
+    fitid: Optional[str] = None
+    fingerprint: str
+    trntype: Optional[str] = None
+    checknum: Optional[str] = None
+    refnum: Optional[str] = None
+    name: Optional[str] = None
+    memo: Optional[str] = None
     categoria_sugerida_id: Optional[int] = None
+    ja_importada: bool = False
+    duplicate_reason: Optional[str] = None
+    ofx_import_token: Optional[str] = None
 
 
 @router.post(
@@ -219,9 +233,21 @@ class ExtratoItemOut(Schema):
     response=List[ExtratoItemOut],
     auth=AuthBearer(),
 )
-def importar_extrato_despesas(request, loja_id: int, file: File[UploadedFile]):
+def importar_extrato_despesas(
+    request,
+    loja_id: int,
+    conta_origem_id: int,
+    file: File[UploadedFile],
+):
     """Lê um OFX/OFC sem persistir lançamentos e respeita a loja autenticada."""
     check_permission(request, loja_id)
+    conta = ContaBancaria.objects.filter(
+        id=conta_origem_id,
+        loja_id_externo=loja_id,
+        ativo=True,
+    ).first()
+    if conta is None:
+        raise HttpError(400, "Conta bancária ativa inválida para a loja atual.")
 
     raw_content = file.read()
     try:
@@ -235,12 +261,50 @@ def importar_extrato_despesas(request, loja_id: int, file: File[UploadedFile]):
     if not transactions:
         raise HttpError(400, "Arquivo OFX/OFC inválido ou sem transações válidas.")
 
+    fitids = {
+        item["fitid"]
+        for item in transactions
+        if item["tipo"] == "SAIDA" and item.get("fitid")
+    }
+    fingerprints = {
+        item["fingerprint"]
+        for item in transactions
+        if item["tipo"] == "SAIDA" and item.get("fingerprint")
+    }
+    fitids_importados = set(
+        ContaPagar.objects.filter(
+            conta_origem=conta,
+            ofx_fitid__in=fitids,
+        ).values_list("ofx_fitid", flat=True)
+    )
+    fingerprints_importados = set(
+        ContaPagar.objects.filter(
+            conta_origem=conta,
+            ofx_fingerprint__in=fingerprints,
+        ).values_list("ofx_fingerprint", flat=True)
+    )
+
     for item in transactions:
         item["categoria_sugerida_id"] = (
             OfxParserService.adivinhar_categoria(item["descricao_original"], loja_id)
             if item["tipo"] == "SAIDA"
             else None
         )
+        item["ja_importada"] = False
+        item["duplicate_reason"] = None
+        item["ofx_import_token"] = None
+        if item["tipo"] == "SAIDA":
+            item["ofx_import_token"] = _assinar_importacao_ofx(
+                loja_id,
+                conta.id,
+                item,
+            )
+            if item.get("fitid") in fitids_importados:
+                item["ja_importada"] = True
+                item["duplicate_reason"] = "FITID"
+            elif item.get("fingerprint") in fingerprints_importados:
+                item["ja_importada"] = True
+                item["duplicate_reason"] = "FINGERPRINT"
 
     return transactions
 
@@ -323,12 +387,37 @@ def listar_perfis_taxas(request, loja_id: Optional[int] = None):
         qs = qs.filter(loja_id_externo=loja_id)
     return qs
 
+
+class VendedorAtivoOut(Schema):
+    id: int
+    nome: str
+    loja_id: int
+
+
+@router.get(
+    "/vendedores/ativos/{loja_id}",
+    response=List[VendedorAtivoOut],
+    auth=AuthBearer(),
+)
+def listar_vendedores_ativos(request, loja_id: int):
+    """Expõe somente a identidade pública de vendedores ativos da loja."""
+    check_permission(request, loja_id)
+    try:
+        return VendasClientSQL().get_vendedores_ativos_por_loja(loja_id)
+    except Exception as exc:
+        raise HttpError(
+            503,
+            "Sistema de Vendas indisponível para consultar vendedores ativos.",
+        ) from exc
+
 # --- DESPESAS (CRUD) ---
 
 class RateioIn(Schema):
+    id: Optional[int] = None
     descricao: str
     valor: Decimal
     categoria_id: Optional[int] = None
+    vendedor_id_externo: Optional[int] = None
 
 class DespesaIn(Schema):
     descricao: str
@@ -339,12 +428,21 @@ class DespesaIn(Schema):
     data_transacao: date
     rateios: List[RateioIn] = []
     fornecedor_id: Optional[int] = None
+    conta_origem_id: Optional[int] = None
+    origem_lancamento: str = "MANUAL"
+    ofx_fitid: Optional[str] = None
+    ofx_fingerprint: Optional[str] = None
+    descricao_original_extrato: Optional[str] = None
+    ofx_import_token: Optional[str] = None
+    vendedor_id_externo: Optional[int] = None
 
 class RateioOut(Schema):
     id: int
     descricao: str
     valor: Decimal
     categoria_id: Optional[int]
+    vendedor_id_externo: Optional[int] = None
+    vendedor_nome_snapshot: Optional[str] = None
 
 class DespesaOut(Schema):
     id: int
@@ -353,6 +451,13 @@ class DespesaOut(Schema):
     data_transacao: Optional[date] = None
     data_competencia: date
     categoria: CategoriaOut = None
+    conta_origem_id: Optional[int] = None
+    origem_lancamento: str
+    ofx_fitid: Optional[str] = None
+    ofx_fingerprint: Optional[str] = None
+    descricao_original_extrato: Optional[str] = None
+    vendedor_id_externo: Optional[int] = None
+    vendedor_nome_snapshot: Optional[str] = None
 
 class DespesaDetailOut(DespesaOut):
     valor_bruto: Decimal
@@ -374,6 +479,284 @@ def _garantir_periodo_caixa_aberto(loja_id: int, data_transacao: date):
             409,
             f"Período de caixa concluído ({data_transacao.strftime('%m/%Y')}).",
         )
+
+
+def _valor_centavos(valor: Decimal) -> Decimal:
+    return Decimal(str(valor)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+
+def _assinar_importacao_ofx(loja_id: int, conta_origem_id: int, item: dict) -> str:
+    return signing.dumps(
+        {
+            "loja_id": loja_id,
+            "conta_origem_id": conta_origem_id,
+            "fitid": (item.get("fitid") or "").strip() or None,
+            "fingerprint": item["fingerprint"],
+            "data_transacao": item["data_transacao"].isoformat(),
+            "valor": f"{_valor_centavos(item['valor']):.2f}",
+            "descricao_original_extrato": item["descricao_original"],
+            "tipo": "SAIDA",
+        },
+        salt=OFX_IMPORT_TOKEN_SALT,
+    )
+
+
+def _validar_token_importacao_ofx(
+    payload: DespesaIn,
+    loja_id: int,
+    conta_origem_id: int,
+    fitid: Optional[str],
+    fingerprint: str,
+    descricao_original: str,
+):
+    if not payload.ofx_import_token:
+        raise HttpError(400, "Token assinado de importação OFX é obrigatório.")
+
+    try:
+        dados_assinados = signing.loads(
+            payload.ofx_import_token,
+            salt=OFX_IMPORT_TOKEN_SALT,
+        )
+    except (signing.BadSignature, TypeError, ValueError) as exc:
+        raise HttpError(400, "Token OFX inválido ou adulterado.") from exc
+
+    esperado = {
+        "loja_id": loja_id,
+        "conta_origem_id": conta_origem_id,
+        "fitid": fitid,
+        "fingerprint": fingerprint,
+        "data_transacao": payload.data_transacao.isoformat(),
+        "valor": f"{_valor_centavos(payload.valor):.2f}",
+        "descricao_original_extrato": descricao_original,
+        "tipo": "SAIDA",
+    }
+    if not isinstance(dados_assinados, dict) or any(
+        dados_assinados.get(campo) != valor
+        for campo, valor in esperado.items()
+    ):
+        raise HttpError(
+            400,
+            "Token OFX incompatível com os dados bancários enviados.",
+        )
+
+
+def _obter_conta_ativa_da_loja(conta_id: Optional[int], loja_id: int):
+    if conta_id is None:
+        return None
+    conta = ContaBancaria.objects.filter(
+        id=conta_id,
+        loja_id_externo=loja_id,
+        ativo=True,
+    ).first()
+    if conta is None:
+        raise HttpError(400, "Conta bancária ativa inválida para a loja atual.")
+    return conta
+
+
+def _preparar_origem_lancamento(payload: DespesaIn, loja_id: int):
+    origem = (payload.origem_lancamento or 'MANUAL').upper().strip()
+    if origem not in {'MANUAL', 'OFX'}:
+        raise HttpError(400, "Origem do lançamento inválida.")
+
+    conta = _obter_conta_ativa_da_loja(payload.conta_origem_id, loja_id)
+    fitid = (payload.ofx_fitid or '').strip() or None
+    fingerprint = (payload.ofx_fingerprint or '').strip() or None
+    descricao_original = payload.descricao_original_extrato
+
+    if origem == 'OFX':
+        if conta is None:
+            raise HttpError(400, "Uma conta bancária ativa é obrigatória para OFX.")
+        if fingerprint is None:
+            raise HttpError(400, "Fingerprint OFX é obrigatório.")
+        if not descricao_original:
+            raise HttpError(400, "Descrição original do extrato é obrigatória.")
+        _validar_token_importacao_ofx(
+            payload,
+            loja_id,
+            conta.id,
+            fitid,
+            fingerprint,
+            descricao_original,
+        )
+    elif fitid or fingerprint or descricao_original or payload.ofx_import_token:
+        raise HttpError(400, "Metadados OFX exigem origem_lancamento=OFX.")
+
+    return origem, conta, fitid, fingerprint, descricao_original
+
+
+def _preparar_rateios_e_vendedores(
+    payload: DespesaIn,
+    categoria_principal: CategoriaDespesa,
+    loja_id: int,
+    despesa_existente: Optional[ContaPagar] = None,
+    valor_liquido_alvo: Optional[Decimal] = None,
+):
+    if payload.vendedor_id_externo is not None and payload.rateios:
+        raise HttpError(
+            400,
+            "O vendedor da despesa não pode ser usado junto com rateios.",
+        )
+
+    valor_bruto = _valor_centavos(payload.valor)
+    valor_rateio_alvo = _valor_centavos(
+        valor_liquido_alvo
+        if valor_liquido_alvo is not None
+        else valor_bruto
+    )
+    categoria_ids = {
+        rateio.categoria_id
+        for rateio in payload.rateios
+        if rateio.categoria_id is not None
+    }
+    categorias = {
+        categoria.id: categoria
+        for categoria in CategoriaDespesa.objects.filter(id__in=categoria_ids)
+    }
+    if len(categorias) != len(categoria_ids):
+        inexistentes = sorted(categoria_ids - set(categorias))
+        raise HttpError(400, f"Categorias de rateio inexistentes: {inexistentes}.")
+
+    splits_existentes = {}
+    if despesa_existente is not None:
+        splits_existentes = {
+            split.id: split for split in despesa_existente.splits.all()
+        }
+
+    preparados = []
+    total_rateado = Decimal('0.00')
+    vendedor_ids_para_consulta = set()
+
+    for rateio in payload.rateios:
+        valor = _valor_centavos(rateio.valor)
+        if valor <= 0:
+            raise HttpError(400, "Cada valor de rateio deve ser maior que zero.")
+        total_rateado += valor
+        categoria = categorias.get(rateio.categoria_id, categoria_principal)
+        snapshot_preservado = None
+        split_existente = splits_existentes.get(rateio.id)
+        if (
+            split_existente is not None
+            and rateio.vendedor_id_externo is not None
+            and split_existente.vendedor_id_externo == rateio.vendedor_id_externo
+            and split_existente.vendedor_nome_snapshot
+        ):
+            snapshot_preservado = split_existente.vendedor_nome_snapshot
+
+        if rateio.vendedor_id_externo is not None:
+            if categoria.grupo_contabil != 'PESSOAL':
+                raise HttpError(
+                    400,
+                    "Vendedor só pode ser associado a categoria do grupo PESSOAL.",
+                )
+            if snapshot_preservado is None:
+                vendedor_ids_para_consulta.add(rateio.vendedor_id_externo)
+
+        preparados.append({
+            "payload": rateio,
+            "valor": valor,
+            "categoria": categoria,
+            "snapshot_preservado": snapshot_preservado,
+        })
+
+    if payload.rateios:
+        saldo = valor_rateio_alvo - total_rateado
+        if saldo != Decimal('0.00'):
+            raise HttpError(
+                400,
+                f"Saldo a ratear deve ser R$ 0,00. Saldo atual: {saldo:.2f}.",
+            )
+
+    snapshot_parent = None
+    if payload.vendedor_id_externo is not None:
+        if categoria_principal.grupo_contabil != 'PESSOAL':
+            raise HttpError(
+                400,
+                "Vendedor só pode ser associado a categoria do grupo PESSOAL.",
+            )
+        if (
+            despesa_existente is not None
+            and despesa_existente.vendedor_id_externo == payload.vendedor_id_externo
+            and despesa_existente.vendedor_nome_snapshot
+        ):
+            snapshot_parent = despesa_existente.vendedor_nome_snapshot
+        else:
+            vendedor_ids_para_consulta.add(payload.vendedor_id_externo)
+
+    vendedores = {}
+    if vendedor_ids_para_consulta:
+        try:
+            vendedores_ativos = VendasClientSQL().get_vendedores_ativos_por_loja(
+                loja_id
+            )
+        except Exception as exc:
+            raise HttpError(
+                503,
+                "Sistema de Vendas indisponível para validar vendedor.",
+            ) from exc
+        vendedores = {
+            int(vendedor["id"]): vendedor
+            for vendedor in vendedores_ativos
+            if int(vendedor["loja_id"]) == loja_id
+        }
+        ausentes = sorted(vendedor_ids_para_consulta - set(vendedores))
+        if ausentes:
+            raise HttpError(
+                400,
+                f"Vendedor ativo não encontrado para a loja atual: {ausentes}.",
+            )
+
+    if payload.vendedor_id_externo is not None and snapshot_parent is None:
+        snapshot_parent = vendedores[payload.vendedor_id_externo]["nome"]
+
+    for preparado in preparados:
+        rateio = preparado["payload"]
+        if (
+            rateio.vendedor_id_externo is not None
+            and preparado["snapshot_preservado"] is None
+        ):
+            preparado["snapshot_preservado"] = vendedores[
+                rateio.vendedor_id_externo
+            ]["nome"]
+
+    return valor_bruto, snapshot_parent, preparados
+
+
+def _garantir_fatos_ofx_imutaveis(despesa: ContaPagar, payload: DespesaIn):
+    if despesa.origem_lancamento != 'OFX':
+        return
+
+    if (
+        _valor_centavos(payload.valor) != _valor_centavos(despesa.valor_bruto)
+        or payload.data_transacao != despesa.data_transacao
+    ):
+        raise HttpError(
+            400,
+            "Valor e data da transação são fatos bancários de um OFX e não podem ser editados.",
+        )
+
+    campos_enviados = getattr(
+        payload,
+        "model_fields_set",
+        getattr(payload, "__fields_set__", set()),
+    )
+    valores_bancarios = {
+        "conta_origem_id": despesa.conta_origem_id,
+        "origem_lancamento": despesa.origem_lancamento,
+        "ofx_fitid": despesa.ofx_fitid,
+        "ofx_fingerprint": despesa.ofx_fingerprint,
+        "descricao_original_extrato": despesa.descricao_original_extrato,
+    }
+    for campo, valor_persistido in valores_bancarios.items():
+        if campo not in campos_enviados:
+            continue
+        valor_enviado = getattr(payload, campo)
+        if campo == "ofx_fitid":
+            valor_enviado = (valor_enviado or "").strip() or None
+        if valor_enviado != valor_persistido:
+            raise HttpError(
+                400,
+                "Os fatos bancários de uma transação OFX não podem ser editados.",
+            )
 
 
 @router.get("/despesas/", response=List[DespesaOut])
@@ -421,27 +804,53 @@ def criar_despesa(request, payload: DespesaIn):
         if payload.fornecedor_id
         else None
     )
-
-    with transaction.atomic():
-        despesa = ContaPagar.objects.create(
-            descricao=payload.descricao,
-            loja_id_externo=loja_id_do_token,
-            categoria=categoria,
-            fornecedor=fornecedor,
-            valor_bruto=payload.valor,
-            data_competencia=payload.data_competencia,
-            data_transacao=payload.data_transacao,
-            criado_por_id=getattr(request, 'user_id', None)
+    origem, conta, fitid, fingerprint, descricao_original = (
+        _preparar_origem_lancamento(payload, loja_id_do_token)
+    )
+    valor_despesa, vendedor_nome, rateios_preparados = (
+        _preparar_rateios_e_vendedores(
+            payload,
+            categoria,
+            loja_id_do_token,
         )
-        for r in payload.rateios:
-            cat_id = r.categoria_id if r.categoria_id else categoria.id
-            cat_rateio = get_object_or_404(CategoriaDespesa, id=cat_id)
-            RateioDespesa.objects.create(
-                despesa=despesa,
-                descricao=r.descricao,
-                valor=r.valor,
-                categoria=cat_rateio
+    )
+
+    try:
+        with transaction.atomic():
+            despesa = ContaPagar.objects.create(
+                descricao=payload.descricao,
+                loja_id_externo=loja_id_do_token,
+                categoria=categoria,
+                fornecedor=fornecedor,
+                valor_bruto=valor_despesa,
+                data_competencia=payload.data_competencia,
+                data_transacao=payload.data_transacao,
+                conta_origem=conta,
+                origem_lancamento=origem,
+                ofx_fitid=fitid,
+                ofx_fingerprint=fingerprint,
+                descricao_original_extrato=descricao_original,
+                vendedor_id_externo=payload.vendedor_id_externo,
+                vendedor_nome_snapshot=vendedor_nome,
+                criado_por_id=getattr(request, 'user_id', None),
             )
+            for preparado in rateios_preparados:
+                rateio = preparado["payload"]
+                RateioDespesa.objects.create(
+                    despesa=despesa,
+                    descricao=rateio.descricao,
+                    valor=preparado["valor"],
+                    categoria=preparado["categoria"],
+                    vendedor_id_externo=rateio.vendedor_id_externo,
+                    vendedor_nome_snapshot=preparado["snapshot_preservado"],
+                )
+    except IntegrityError as exc:
+        if origem == 'OFX':
+            raise HttpError(
+                409,
+                "Esta transação OFX já existe para a conta selecionada.",
+            ) from exc
+        raise
     return despesa
 
 @router.put("/despesas/{despesa_id}", response=DespesaOut)
@@ -454,7 +863,11 @@ def editar_despesa(request, despesa_id: int, payload: DespesaIn):
     despesa = get_object_or_404(ContaPagar, id=despesa_id, loja_id_externo=active_loja_id)
 
     _garantir_periodo_caixa_aberto(active_loja_id, despesa.data_transacao)
-    if payload.data_transacao != despesa.data_transacao:
+    _garantir_fatos_ofx_imutaveis(despesa, payload)
+    if (
+        despesa.origem_lancamento != 'OFX'
+        and payload.data_transacao != despesa.data_transacao
+    ):
         _garantir_periodo_caixa_aberto(active_loja_id, payload.data_transacao)
 
     if not CategoriaDespesa.objects.filter(id=payload.categoria_id).exists():
@@ -465,24 +878,49 @@ def editar_despesa(request, despesa_id: int, payload: DespesaIn):
     if payload.fornecedor_id:
         fornecedor = get_object_or_404(Fornecedor, id=payload.fornecedor_id)
 
+    valor_liquido_prospectivo = _valor_centavos(
+        _valor_centavos(payload.valor)
+        - _valor_centavos(despesa.valor_desconto)
+        + _valor_centavos(despesa.valor_acrescimo)
+    )
+    valor_despesa, vendedor_nome, rateios_preparados = (
+        _preparar_rateios_e_vendedores(
+            payload,
+            categoria,
+            active_loja_id,
+            despesa_existente=despesa,
+            valor_liquido_alvo=valor_liquido_prospectivo,
+        )
+    )
+    conta = despesa.conta_origem
+    if despesa.origem_lancamento != 'OFX':
+        conta = _obter_conta_ativa_da_loja(
+            payload.conta_origem_id,
+            active_loja_id,
+        )
+
     with transaction.atomic():
         despesa.descricao = payload.descricao
         despesa.categoria = categoria
         despesa.fornecedor = fornecedor
-        despesa.valor_bruto = payload.valor
+        despesa.valor_bruto = valor_despesa
         despesa.data_competencia = payload.data_competencia
         despesa.data_transacao = payload.data_transacao
+        despesa.conta_origem = conta
+        despesa.vendedor_id_externo = payload.vendedor_id_externo
+        despesa.vendedor_nome_snapshot = vendedor_nome
         despesa.save()
 
         despesa.splits.all().delete()
-        for r in payload.rateios:
-            cat_id = r.categoria_id if r.categoria_id else categoria.id
-            cat_rateio = get_object_or_404(CategoriaDespesa, id=cat_id)
+        for preparado in rateios_preparados:
+            rateio = preparado["payload"]
             RateioDespesa.objects.create(
                 despesa=despesa,
-                descricao=r.descricao,
-                valor=r.valor,
-                categoria=cat_rateio
+                descricao=rateio.descricao,
+                valor=preparado["valor"],
+                categoria=preparado["categoria"],
+                vendedor_id_externo=rateio.vendedor_id_externo,
+                vendedor_nome_snapshot=preparado["snapshot_preservado"],
             )
 
     return despesa

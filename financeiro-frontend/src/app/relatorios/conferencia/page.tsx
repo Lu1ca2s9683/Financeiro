@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps, react-hooks/set-state-in-effect, @typescript-eslint/no-require-imports */
 'use client';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { UploadCloud } from 'lucide-react';
-import { api, ExtratoItem } from '@/services/api';
+import { api, ContaBancaria, ExtratoItem } from '@/services/api';
 import { useFinanceiro } from '@/contexts/FinanceiroContext';
 
 export default function ConferenciaPage() {
@@ -10,12 +10,27 @@ export default function ConferenciaPage() {
     const [file, setFile] = useState<File | null>(null);
     const [extrato, setExtrato] = useState<ExtratoItem[]>([]);
     const [loading, setLoading] = useState(false);
+    const [contas, setContas] = useState<ContaBancaria[]>([]);
+    const [contaOrigemId, setContaOrigemId] = useState('');
+
+    useEffect(() => {
+        if (!lojaId) return;
+        api.getContasBancarias()
+            .then(data => setContas(data.filter(conta => conta.ativo)))
+            .catch(console.error);
+        setContaOrigemId('');
+        setExtrato([]);
+    }, [lojaId]);
 
     const handleImport = async () => {
-        if (!file || !lojaId) return;
+        if (!file || !lojaId || !contaOrigemId) return;
         setLoading(true);
         try {
-            const data = await api.importarExtratoDespesas(lojaId, file);
+            const data = await api.importarExtratoDespesas(
+                lojaId,
+                Number(contaOrigemId),
+                file
+            );
             // Regra de Negócio: Mostrar apenas ENTRADAS na tela de conferência
             setExtrato(data.filter((item) => item.tipo === 'ENTRADA'));
         } catch (e) {
@@ -55,6 +70,17 @@ export default function ConferenciaPage() {
             </div>
 
             <div className="flex gap-4 items-center bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                <select
+                    aria-label="Conta bancária do extrato"
+                    value={contaOrigemId}
+                    onChange={event => setContaOrigemId(event.target.value)}
+                    className="border border-slate-300 rounded-lg px-3 py-2"
+                >
+                    <option value="">Selecione a conta...</option>
+                    {contas.map(conta => (
+                        <option key={conta.id} value={conta.id}>{conta.nome}</option>
+                    ))}
+                </select>
                 <input
                     type="file"
                     accept=".ofx,.ofc"
@@ -63,7 +89,7 @@ export default function ConferenciaPage() {
                 />
                 <button
                     onClick={handleImport}
-                    disabled={!file || loading}
+                    disabled={!file || !contaOrigemId || loading}
                     className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 hover:bg-indigo-700 transition disabled:opacity-50"
                 >
                     <UploadCloud size={18} /> {loading ? 'Lendo...' : 'Ler Extrato'}

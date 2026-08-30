@@ -35,6 +35,8 @@ export interface Rateio {
   descricao: string;
   valor: number;
   categoria_id?: number;
+  vendedor_id_externo?: number | null;
+  vendedor_nome_snapshot?: string | null;
 }
 
 export interface ExtratoItem {
@@ -42,7 +44,17 @@ export interface ExtratoItem {
   descricao_original: string;
   valor: number;
   tipo: string;
+  fitid?: string | null;
+  fingerprint: string;
+  trntype?: string | null;
+  checknum?: string | null;
+  refnum?: string | null;
+  name?: string | null;
+  memo?: string | null;
   categoria_sugerida_id?: number | null;
+  ja_importada: boolean;
+  duplicate_reason?: string | null;
+  ofx_import_token?: string | null;
 }
 
 export interface Despesa {
@@ -52,6 +64,13 @@ export interface Despesa {
   data_competencia: string;
   categoria?: { id: number; nome: string };
   data_transacao?: string;
+  conta_origem_id?: number | null;
+  origem_lancamento: 'MANUAL' | 'OFX';
+  ofx_fitid?: string | null;
+  ofx_fingerprint?: string | null;
+  descricao_original_extrato?: string | null;
+  vendedor_id_externo?: number | null;
+  vendedor_nome_snapshot?: string | null;
 }
 
 export interface DashboardResumo {
@@ -81,7 +100,26 @@ export interface DRELancamento {
   data_transacao: string;
   descricao: string;
   fornecedor_nome: string | null;
+  vendedor_id_externo: number | null;
+  vendedor_nome: string | null;
   valor: number;
+}
+
+export interface VendedorAtivo {
+  id: number;
+  nome: string;
+  loja_id: number;
+}
+
+export interface DREPessoalPorVendedor {
+  total_pessoal: number;
+  total_individualizado: number;
+  total_nao_individualizado: number;
+  vendedores: Array<{
+    vendedor_id_externo: number;
+    vendedor_nome: string;
+    valor: number;
+  }>;
 }
 
 export interface DRECategoria {
@@ -184,6 +222,7 @@ export interface DREData {
   };
   composicao_recebimentos?: DREComposicaoRecebimentos;
   qualidade_recebimentos?: DREQualidadeRecebimentos;
+  pessoal_por_vendedor?: DREPessoalPorVendedor;
   linhas: DRELinha[];
   grupos_detalhados: DREGrupo[];
   qualidade_dados: {
@@ -389,6 +428,14 @@ export const api = {
     return res.json();
   },
 
+  getVendedoresAtivos: async (lojaId: number): Promise<VendedorAtivo[]> => {
+    const res = await fetch(`${API_BASE_URL}/vendedores/ativos/${lojaId}`, {
+      headers: getHeaders(),
+    });
+    if (!res.ok) throw new Error('Falha ao buscar vendedores ativos');
+    return res.json();
+  },
+
   createCategoria: async (nome: string, grupo_contabil: string = 'ADMINISTRATIVA') => {
     const res = await fetch(`${API_BASE_URL}/categorias/`, {
       method: 'POST',
@@ -565,13 +612,17 @@ export const api = {
     if (!res.ok) throw new Error('Falha ao excluir');
     return res.json();
   },
-  importarExtratoDespesas: async (lojaId: number, file: File): Promise<ExtratoItem[]> => {
+  importarExtratoDespesas: async (
+    lojaId: number,
+    contaOrigemId: number,
+    file: File
+  ): Promise<ExtratoItem[]> => {
     const formData = new FormData();
     formData.append('file', file);
     const headers = getHeaders();
     delete (headers as any)['Content-Type']; // Remove para o browser colocar o boundary
 
-    const res = await fetch(`${API_BASE_URL}/extrato/importar-despesas/${lojaId}/`, {
+    const res = await fetch(`${API_BASE_URL}/extrato/importar-despesas/${lojaId}/?conta_origem_id=${contaOrigemId}`, {
       method: 'POST',
       headers: headers,
       body: formData,
