@@ -120,9 +120,9 @@ class VendasClientSQLTest(SimpleTestCase):
         cursor = MagicMock()
         connections.__getitem__.return_value.cursor.return_value.__enter__.return_value = cursor
         cursor.fetchall.return_value = [
-            ("DINHEIRO", "GERAL", Decimal("100.00")),
-            ("PIX", "GERAL", Decimal("200.00")),
-            ("CARTAO", "GERAL", Decimal("300.00")),
+            ("DINHEIRO", None, Decimal("100.00")),
+            ("PIX_CONTA", None, Decimal("200.00")),
+            ("CARTAO", None, Decimal("300.00")),
             (None, None, Decimal("40.00")),
         ]
 
@@ -140,6 +140,6 @@ class VendasClientSQLTest(SimpleTestCase):
         self.assertIn("UNION ALL", query)
         self.assertEqual(
             [item.tipo_pagamento for item in itens],
-            ["DINHEIRO", "PIX", "CARTAO_NAO_IDENTIFICADO", "OUTRO"],
+            ["DINHEIRO", "PIX_CONTA", "CARTAO_NAO_IDENTIFICADO", "OUTRO"],
         )
         self.assertTrue(all(item.parcelas == 1 for item in itens))
