@@ -123,6 +123,10 @@ export interface DREData {
   };
   resumo: {
     receita_bruta: number;
+    total_dinheiro: number;
+    total_cartao: number;
+    total_pix: number;
+    total_outros: number;
     impostos: number;
     receita_liquida: number;
     custos_produtos: number;
@@ -147,8 +151,12 @@ export interface DREData {
     quantidade_despesas_sem_rateio: number;
     quantidade_despesas_com_rateio_valido: number;
     quantidade_despesas_com_rateio_invalido: number;
+    quantidade_rateios_com_ajuste_tolerado: number;
     valor_despesas_com_rateio_invalido: number;
+    valor_absoluto_ajustes_rateio: number;
     valor_total_despesas_consideradas: number;
+    valor_total_despesas_classificadas: number;
+    diferenca_conservacao_despesas: number;
     possui_rateios_invalidos: boolean;
   };
 }
@@ -158,17 +166,18 @@ export interface Fechamento {
   mes: number;
   ano: number;
   faturamento_bruto: number;
-  total_dinheiro: number;
-  total_cartao: number;
-  total_pix: number;
-  impostos: number;
+  total_dinheiro: number | null;
+  total_cartao: number | null;
+  total_pix: number | null;
+  total_outros: number | null;
+  impostos: number | null;
   receita_liquida: number;
-  custos_produtos: number;
-  lucro_bruto: number;
+  custos_produtos: number | null;
+  lucro_bruto: number | null;
   despesas_operacionais: number;
   resultado_operacional: number;
-  despesas_financeiras: number;
-  lucro_liquido: number;
+  despesas_financeiras: number | null;
+  lucro_liquido: number | null;
   status: string;
 }
 
@@ -229,6 +238,34 @@ const getHeaders = () => {
     'Content-Type': 'application/json',
     ...(token ? { 'Authorization': `Bearer ${token}` } : {})
   };
+};
+
+const getFechamentoPersistido = async (
+  lojaId: number,
+  mes: number,
+  ano: number
+): Promise<Fechamento | null> => {
+  const res = await fetch(`${API_BASE_URL}/fechamento/${lojaId}/${mes}/${ano}`, {
+    method: 'GET',
+    headers: getHeaders()
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error('Falha ao buscar fechamento persistido');
+  return res.json();
+};
+
+const calcularFechamento = async (
+  lojaId: number,
+  mes: number,
+  ano: number
+): Promise<Fechamento> => {
+  const res = await fetch(`${API_BASE_URL}/fechamento/calcular/${lojaId}/${mes}/${ano}`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({})
+  });
+  if (!res.ok) throw new Error('Falha ao calcular fechamento');
+  return res.json();
 };
 
 export const api = {
@@ -423,14 +460,16 @@ export const api = {
     }
   },
 
+  getFechamentoPersistido,
+
+  calcularFechamento,
+
   getFechamento: async (lojaId: number, mes: number, ano: number): Promise<Fechamento> => {
-    const res = await fetch(`${API_BASE_URL}/fechamento/calcular/${lojaId}/${mes}/${ano}`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({}) 
-    });
-    if (!res.ok) throw new Error('Falha ao buscar fechamento');
-    return res.json();
+    const persisted = await getFechamentoPersistido(lojaId, mes, ano);
+    if (persisted?.status === 'CONCLUIDO') {
+      return persisted;
+    }
+    return calcularFechamento(lojaId, mes, ano);
   },
 
   // Método que aplica o filtro

@@ -13,6 +13,7 @@ from ninja.testing import TestClient
 from financeiro_core.app.api.endpoints import (
     TransferenciaIn,
     calcular_fechamento,
+    _selecionar_contas_transferencia_bloqueadas,
     registrar_transferencia,
     router,
 )
@@ -133,6 +134,32 @@ class ContasTransferenciaApiTest(TestCase):
         self.destino.refresh_from_db()
         self.assertEqual(self.origem.saldo_atual, Decimal("69.50"))
         self.assertEqual(self.destino.saldo_atual, Decimal("55.50"))
+
+    def test_transfer_locks_accounts_in_deterministic_id_order(self):
+        contas = _selecionar_contas_transferencia_bloqueadas(
+            self.loja_id,
+            [self.destino.id, self.origem.id],
+        )
+
+        self.assertEqual(
+            [conta.id for conta in contas],
+            sorted([self.origem.id, self.destino.id]),
+        )
+
+    def test_transfer_uses_select_for_update(self):
+        with patch.object(
+            ContaBancaria.objects,
+            "select_for_update",
+            wraps=ContaBancaria.objects.select_for_update,
+        ) as select_for_update:
+            response = self.client.post(
+                "/contas/transferencia",
+                json=self._transfer_payload(),
+                headers=self.headers,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        select_for_update.assert_called_once_with()
 
     def test_transfer_rejects_same_source_and_destination(self):
         response = self.client.post(

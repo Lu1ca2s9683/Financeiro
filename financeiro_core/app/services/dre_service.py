@@ -1,11 +1,10 @@
 from decimal import Decimal, ROUND_HALF_UP
-from datetime import datetime
 from django.utils import timezone
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 # Imports das regras de domínio e infraestrutura existentes
 from financeiro_core.domain.services import CalculadoraFinanceira
-from financeiro_core.infrastructure.vendas_client import VendasClientSQL, VendasAPIClientMock
+from financeiro_core.infrastructure.vendas_client import VendasClientSQL
 from financeiro_core.app.services.dre_repositories import DjangoRepositorioTaxas
 from financeiro_core.app.models.entidades import ContaPagar
 
@@ -65,12 +64,14 @@ class DREService:
         qtd_sem_rateio = 0
         qtd_rateio_valido = 0
         qtd_rateio_invalido = 0
+        qtd_rateio_ajustado = 0
         valor_rateio_invalido = Decimal('0.00')
+        valor_absoluto_ajustes_rateio = Decimal('0.00')
         valor_total_consideradas = Decimal('0.00')
 
         for despesa in despesas_qs:
             valor_liq = despesa.valor_liquido
-            splits = list(despesa.splits.all())
+            splits = sorted(despesa.splits.all(), key=lambda split: split.id)
 
             qtd_consideradas += 1
             valor_total_consideradas += valor_liq
@@ -98,13 +99,19 @@ class DREService:
                     valor_liq
                 )
             else:
-                soma_splits = sum([s.valor for s in splits])
+                soma_splits = sum((s.valor for s in splits), Decimal('0.00'))
+                residual = valor_liq - soma_splits
 
-                if abs(soma_splits - valor_liq) <= Decimal('0.01'):
+                if abs(residual) <= Decimal('0.01'):
                     # Regra B: Splits Válidos
                     qtd_rateio_valido += 1
-                    for split in splits:
-                        v_split = split.valor
+                    if residual:
+                        qtd_rateio_ajustado += 1
+                        valor_absoluto_ajustes_rateio += abs(residual)
+
+                    for indice, split in enumerate(splits):
+                        ajuste = residual if indice == len(splits) - 1 else Decimal('0.00')
+                        v_split = split.valor + ajuste
 
                         # Fallback seguro para categoria
                         cat = split.categoria if split.categoria else despesa.categoria
@@ -123,7 +130,8 @@ class DREService:
                                 "data_transacao": str(despesa.data_transacao),
                                 "descricao": split.descricao or despesa.descricao,
                                 "fornecedor_nome": despesa.fornecedor.razao_social if despesa.fornecedor else None,
-                                "valor": v_split
+                                "valor": v_split,
+                                "ajuste_conservacao": ajuste,
                             },
                             v_split
                         )
@@ -170,6 +178,7 @@ class DREService:
         despesas_financeiras_total = taxas_cartao + outras_despesas_financeiras
 
         lucro_liquido = resultado_operacional - despesas_financeiras_total
+        valor_total_classificado = sum(grupos_totais.values(), Decimal('0.00'))
 
         # Funções para Margens
         def calc_margem(valor: Decimal) -> Decimal:
@@ -200,6 +209,10 @@ class DREService:
             },
             "resumo": {
                 "receita_bruta": faturamento_bruto,
+                "total_dinheiro": vendas['total_dinheiro'],
+                "total_cartao": vendas['total_cartao'],
+                "total_pix": vendas['total_pix'],
+                "total_outros": vendas['total_outros'],
                 "impostos": impostos,
                 "receita_liquida": receita_liquida,
                 "custos_produtos": custos_produtos,
@@ -239,8 +252,14 @@ class DREService:
                 "quantidade_despesas_sem_rateio": qtd_sem_rateio,
                 "quantidade_despesas_com_rateio_valido": qtd_rateio_valido,
                 "quantidade_despesas_com_rateio_invalido": qtd_rateio_invalido,
+                "quantidade_rateios_com_ajuste_tolerado": qtd_rateio_ajustado,
                 "valor_despesas_com_rateio_invalido": valor_rateio_invalido,
+                "valor_absoluto_ajustes_rateio": valor_absoluto_ajustes_rateio,
                 "valor_total_despesas_consideradas": valor_total_consideradas,
+                "valor_total_despesas_classificadas": valor_total_classificado,
+                "diferenca_conservacao_despesas": (
+                    valor_total_classificado - valor_total_consideradas
+                ),
                 "possui_rateios_invalidos": qtd_rateio_invalido > 0
             }
         }

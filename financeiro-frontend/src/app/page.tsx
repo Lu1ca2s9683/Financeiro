@@ -45,7 +45,9 @@ export default function DashboardPage() {
     fetchDados();
   }, [lojaId, mes, ano]);
 
-  const fmt = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+  const fmt = (val: number | null) => val == null
+    ? '—'
+    : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
   return (
     <main className="p-10 space-y-10 max-w-[1600px] mx-auto animate-enter">
@@ -90,9 +92,9 @@ export default function DashboardPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <KpiCard title="Faturamento Bruto" value={dados.faturamento_bruto ?? 0} icon={DollarSign} trend="neutral" delay="delay-0" />
-            <KpiCard title="Dinheiro" value={dados.total_dinheiro ?? 0} icon={DollarSign} trend="neutral" delay="delay-100" />
-            <KpiCard title="Cartão" value={dados.total_cartao ?? 0} icon={Layers} trend="neutral" delay="delay-200" />
-            <KpiCard title="Pix" value={dados.total_pix ?? 0} icon={RefreshCw} trend="neutral" delay="delay-300" />
+            <KpiCard title="Dinheiro" value={dados.total_dinheiro} icon={DollarSign} trend="neutral" delay="delay-100" />
+            <KpiCard title="Cartão" value={dados.total_cartao} icon={Layers} trend="neutral" delay="delay-200" />
+            <KpiCard title="Pix" value={dados.total_pix} icon={RefreshCw} trend="neutral" delay="delay-300" />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-enter delay-300 mt-8">
@@ -210,7 +212,7 @@ function KpiCard({ title, value, icon: Icon, isExpense, highlight, delay }: any)
       
       <p className="text-sm font-medium text-slate-500 mb-1">{title}</p>
       <h3 className={`text-2xl font-bold tracking-tight ${isExpense ? 'text-rose-600' : highlight ? 'text-indigo-900' : 'text-slate-900'}`}>
-        {isExpense && '- '}{fmt(value)}
+        {value == null ? '—' : <>{isExpense && '- '}{fmt(value)}</>}
       </h3>
     </div>
   );
@@ -226,7 +228,7 @@ function ResultRow({ label, value, isNegative, isBold, highlightColor }: any) {
         {label}
       </span>
       <span className={`font-mono ${isNegative ? 'text-rose-600' : color} ${isBold ? 'font-bold text-lg' : 'text-sm'}`}>
-        {isNegative && value > 0 ? `(${fmt(value)})` : fmt(value)}
+        {value == null ? '—' : isNegative && value > 0 ? `(${fmt(value)})` : fmt(value)}
       </span>
     </div>
   )
