@@ -16,6 +16,28 @@ class FrontendPhase1ContractTest(SimpleTestCase):
         self.assertIn("Promise.allSettled", source)
         self.assertNotIn("Promise.all([", source)
 
+    def test_dashboard_reads_frozen_closing_before_calculating_open_period(self):
+        api_source = self._read_frontend(Path("services") / "api.ts")
+        dashboard_source = self._read_frontend(Path("app") / "page.tsx")
+
+        self.assertIn("getFechamentoPersistido", api_source)
+        self.assertIn("method: 'GET'", api_source)
+        self.assertIn("persisted?.status === 'CONCLUIDO'", api_source)
+        self.assertIn("return persisted", api_source)
+        self.assertIn("api.getFechamento(lojaId, mes, ano)", dashboard_source)
+        self.assertNotIn("api.calcularFechamento", dashboard_source)
+
+    def test_dashboard_does_not_render_unknown_legacy_breakdown_as_zero(self):
+        source = self._read_frontend(Path("app") / "page.tsx")
+
+        self.assertIn('value={dados.total_dinheiro}', source)
+        self.assertIn('value={dados.total_cartao}', source)
+        self.assertIn('value={dados.total_pix}', source)
+        self.assertNotIn('dados.total_dinheiro ?? 0', source)
+        self.assertNotIn('dados.total_cartao ?? 0', source)
+        self.assertNotIn('dados.total_pix ?? 0', source)
+        self.assertIn("value == null ? '—'", source)
+
     def test_conferencia_uses_central_api_store_context_and_no_mock_sales(self):
         source = self._read_frontend(Path("app") / "relatorios" / "conferencia" / "page.tsx")
 

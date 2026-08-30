@@ -1,7 +1,6 @@
 import json
 
 from ninja import File, Router, Schema, UploadedFile
-from financeiro_core.app.services.dre_repositories import DjangoRepositorioTaxas, DjangoRepositorioDespesas
 
 class DashboardResumoOut(Schema):
     percentual_pago: float
@@ -17,57 +16,26 @@ from ninja.errors import HttpError
 from typing import List, Optional
 from decimal import Decimal
 from django.shortcuts import get_object_or_404
+from django.http import Http404
 from django.db import transaction
 from django.core.serializers.json import DjangoJSONEncoder
 from datetime import date, datetime, time
 from django.utils import timezone
-import traceback
 
 # Importações dos modelos e serviços
 from ..models.entidades import (
     ContaPagar, RateioDespesa,
     CategoriaDespesa, 
     FechamentoMensal,
-    TaxaMaquininha, 
     PerfilTaxaCartao,
     Fornecedor,
     ContaBancaria,
     MovimentacaoCaixa
 )
-from ...infrastructure.vendas_client import VendasClientSQL, VendasAPIClientMock
-from ...domain.services import ProcessadorFechamento, FaturamentoItemDTO
 from .security import AuthBearer, check_permission
 
 # Instância do Router
 router = Router(auth=AuthBearer())
-
-# ==============================================================================
-# 1. ADAPTERS E REPOSITÓRIOS INTERNOS
-# ==============================================================================
-
-class DjangoRepositorioTaxas:
-    """Busca as taxas configuradas no banco para o cálculo."""
-    def buscar_taxa(self, loja_id: int, tipo: str, bandeira: str, parcelas: int):
-        # 1. Tenta taxa específica
-        taxa = TaxaMaquininha.objects.filter(
-            perfil__loja_id_externo=loja_id,
-            perfil__ativo=True,
-            tipo=tipo,
-            bandeira=bandeira
-        ).first()
-        
-        # 2. Se não achar, tenta fallback para bandeira 'GERAL'
-        if not taxa:
-            taxa = TaxaMaquininha.objects.filter(
-                perfil__loja_id_externo=loja_id,
-                perfil__ativo=True,
-                tipo=tipo,
-                bandeira='GERAL'
-            ).first()
-            
-        if taxa:
-            return type('TaxaDTO', (), {'percentual': taxa.taxa_percentual, 'valor_fixo': taxa.taxa_fixa})
-        return None
 
 @router.get("/dashboard/resumo/{loja_id}/{mes}/{ano}", response=DashboardResumoOut)
 def obter_resumo_dashboard(request, loja_id: int, mes: int, ano: int):
@@ -96,16 +64,12 @@ def obter_resumo_dashboard(request, loja_id: int, mes: int, ano: int):
             "mensagem_assistente": "Nenhuma despesa lançada no regime de caixa para este período."
         }
 
-    total_despesas_mes = 0
+    total_despesas_mes = sum(
+        (despesa.valor_liquido for despesa in despesas), Decimal('0.00')
+    )
 
-    for d in despesas:
-        if d.splits.exists():
-            for split in d.splits.all():
-                total_despesas_mes += float(split.valor)
-        else:
-            total_despesas_mes += float(d.valor_liquido)
-
-    # Como filtramos por data_transacao, consideramos tudo como pago/caixa.
+    # ContaPagar não possui vencimento. Não fabricamos atraso usando competência
+    # ou data da transação; essas métricas ficam neutras até existir dado real.
     perc_pago = 100.0
     perc_atrasado = 0.0
     perc_previsto = 0.0
@@ -114,7 +78,7 @@ def obter_resumo_dashboard(request, loja_id: int, mes: int, ano: int):
         "percentual_pago": round(perc_pago, 1),
         "percentual_atrasado": round(perc_atrasado, 1),
         "percentual_previsto": round(perc_previsto, 1),
-        "total_despesas_mes": round(total_despesas_mes, 2),
+        "total_despesas_mes": float(total_despesas_mes),
         "despesas_vencendo_semana": 0,
         "despesas_atrasadas": 0,
         "saude_financeira": "SAUDAVEL",
@@ -179,6 +143,18 @@ class TransferenciaIn(Schema):
     data: date
     descricao: str
 
+
+def _selecionar_contas_transferencia_bloqueadas(loja_id, conta_ids):
+    """Bloqueia as contas em ordem estável para evitar lost update/deadlock."""
+    contas = list(
+        ContaBancaria.objects.select_for_update()
+        .filter(id__in=conta_ids, loja_id_externo=loja_id, ativo=True)
+        .order_by('id')
+    )
+    if len(contas) != len(set(conta_ids)):
+        raise Http404("Conta bancária não encontrada para a loja ativa.")
+    return contas
+
 @router.post("/contas/transferencia", auth=AuthBearer())
 def registrar_transferencia(request, payload: TransferenciaIn):
     """Realiza uma transferência segura entre contas (Sangria/Depósito)."""
@@ -188,9 +164,6 @@ def registrar_transferencia(request, payload: TransferenciaIn):
 
     if payload.conta_origem_id == payload.conta_destino_id:
         raise HttpError(400, "A conta de origem e destino não podem ser as mesmas.")
-
-    conta_origem = get_object_or_404(ContaBancaria, id=payload.conta_origem_id, loja_id_externo=active_loja_id, ativo=True)
-    conta_destino = get_object_or_404(ContaBancaria, id=payload.conta_destino_id, loja_id_externo=active_loja_id, ativo=True)
 
     if payload.valor <= 0:
         raise HttpError(400, "O valor da transferência deve ser maior que zero.")
@@ -202,6 +175,14 @@ def registrar_transferencia(request, payload: TransferenciaIn):
     )
 
     with transaction.atomic():
+        contas = _selecionar_contas_transferencia_bloqueadas(
+            active_loja_id,
+            [payload.conta_origem_id, payload.conta_destino_id],
+        )
+        contas_por_id = {conta.id: conta for conta in contas}
+        conta_origem = contas_por_id[payload.conta_origem_id]
+        conta_destino = contas_por_id[payload.conta_destino_id]
+
         MovimentacaoCaixa.objects.create(
             conta=conta_origem,
             tipo_movimentacao='TRANSFERENCIA_SAIDA',
@@ -378,6 +359,23 @@ class DespesaDetailOut(DespesaOut):
     valor_desconto: Decimal
     valor_acrescimo: Decimal
     splits: List[RateioOut] = []
+
+
+def _garantir_periodo_caixa_aberto(loja_id: int, data_transacao: date):
+    if data_transacao is None:
+        return
+    if FechamentoMensal.objects.filter(
+        loja_id_externo=loja_id,
+        mes=data_transacao.month,
+        ano=data_transacao.year,
+        status='CONCLUIDO',
+    ).exists():
+        raise HttpError(
+            409,
+            f"Período de caixa concluído ({data_transacao.strftime('%m/%Y')}).",
+        )
+
+
 @router.get("/despesas/", response=List[DespesaOut])
 def listar_despesas(
     request, 
@@ -411,23 +409,20 @@ def obter_despesa(request, despesa_id: int):
 @router.post("/despesas/", response=DespesaOut)
 def criar_despesa(request, payload: DespesaIn):
     """Cria uma nova conta a pagar."""
-    try:
-        loja_id_do_token = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
+    loja_id_do_token = request.auth.get('active_loja_id') if isinstance(request.auth, dict) else getattr(request, 'active_loja_id', None)
 
-        if not loja_id_do_token:
-            raise HttpError(400, "Nenhuma loja ativa no contexto")
+    if not loja_id_do_token:
+        raise HttpError(400, "Nenhuma loja ativa no contexto")
 
-        if not CategoriaDespesa.objects.filter(id=payload.categoria_id).exists():
-            raise HttpError(404, f"Categoria de Despesa com ID {payload.categoria_id} não encontrada.")
+    _garantir_periodo_caixa_aberto(loja_id_do_token, payload.data_transacao)
+    categoria = get_object_or_404(CategoriaDespesa, id=payload.categoria_id)
+    fornecedor = (
+        get_object_or_404(Fornecedor, id=payload.fornecedor_id)
+        if payload.fornecedor_id
+        else None
+    )
 
-        categoria = CategoriaDespesa.objects.get(id=payload.categoria_id)
-
-        fornecedor = None
-        if payload.fornecedor_id:
-            if not Fornecedor.objects.filter(id=payload.fornecedor_id).exists():
-                raise HttpError(404, f"Fornecedor com ID {payload.fornecedor_id} não encontrado.")
-            fornecedor = Fornecedor.objects.get(id=payload.fornecedor_id)
-
+    with transaction.atomic():
         despesa = ContaPagar.objects.create(
             descricao=payload.descricao,
             loja_id_externo=loja_id_do_token,
@@ -440,20 +435,14 @@ def criar_despesa(request, payload: DespesaIn):
         )
         for r in payload.rateios:
             cat_id = r.categoria_id if r.categoria_id else categoria.id
-            cat_rateio = CategoriaDespesa.objects.get(id=cat_id)
+            cat_rateio = get_object_or_404(CategoriaDespesa, id=cat_id)
             RateioDespesa.objects.create(
                 despesa=despesa,
                 descricao=r.descricao,
                 valor=r.valor,
                 categoria=cat_rateio
             )
-        return despesa
-
-    except Exception as e:
-        print("======= ERRO AO SALVAR DESPESA =======")
-        traceback.print_exc()
-        print("======================================")
-        raise HttpError(500, str(e))
+    return despesa
 
 @router.put("/despesas/{despesa_id}", response=DespesaOut)
 def editar_despesa(request, despesa_id: int, payload: DespesaIn):
@@ -464,23 +453,9 @@ def editar_despesa(request, despesa_id: int, payload: DespesaIn):
 
     despesa = get_object_or_404(ContaPagar, id=despesa_id, loja_id_externo=active_loja_id)
 
-    fechamento_atual = FechamentoMensal.objects.filter(
-        loja_id_externo=active_loja_id,
-        mes=despesa.data_competencia.month,
-        ano=despesa.data_competencia.year
-    ).first()
-
-    if fechamento_atual and fechamento_atual.status == 'CONCLUIDO':
-        raise HttpError(400, f"Não é possível editar despesa de mês fechado ({despesa.data_competencia.strftime('%m/%Y')}).")
-
-    if payload.data_competencia != despesa.data_competencia:
-        fechamento_novo = FechamentoMensal.objects.filter(
-            loja_id_externo=active_loja_id,
-            mes=payload.data_competencia.month,
-            ano=payload.data_competencia.year
-        ).first()
-        if fechamento_novo and fechamento_novo.status == 'CONCLUIDO':
-            raise HttpError(400, f"Não é possível mover despesa para mês fechado ({payload.data_competencia.strftime('%m/%Y')}).")
+    _garantir_periodo_caixa_aberto(active_loja_id, despesa.data_transacao)
+    if payload.data_transacao != despesa.data_transacao:
+        _garantir_periodo_caixa_aberto(active_loja_id, payload.data_transacao)
 
     if not CategoriaDespesa.objects.filter(id=payload.categoria_id).exists():
         raise HttpError(404, f"Categoria {payload.categoria_id} não encontrada.")
@@ -490,24 +465,25 @@ def editar_despesa(request, despesa_id: int, payload: DespesaIn):
     if payload.fornecedor_id:
         fornecedor = get_object_or_404(Fornecedor, id=payload.fornecedor_id)
 
-    despesa.descricao = payload.descricao
-    despesa.categoria = categoria
-    despesa.fornecedor = fornecedor
-    despesa.valor_bruto = payload.valor
-    despesa.data_competencia = payload.data_competencia
-    despesa.data_transacao = payload.data_transacao
-    despesa.save()
-    
-    despesa.splits.all().delete()
-    for r in payload.rateios:
-        cat_id = r.categoria_id if r.categoria_id else categoria.id
-        cat_rateio = CategoriaDespesa.objects.get(id=cat_id)
-        RateioDespesa.objects.create(
-            despesa=despesa,
-            descricao=r.descricao,
-            valor=r.valor,
-            categoria=cat_rateio
-        )
+    with transaction.atomic():
+        despesa.descricao = payload.descricao
+        despesa.categoria = categoria
+        despesa.fornecedor = fornecedor
+        despesa.valor_bruto = payload.valor
+        despesa.data_competencia = payload.data_competencia
+        despesa.data_transacao = payload.data_transacao
+        despesa.save()
+
+        despesa.splits.all().delete()
+        for r in payload.rateios:
+            cat_id = r.categoria_id if r.categoria_id else categoria.id
+            cat_rateio = get_object_or_404(CategoriaDespesa, id=cat_id)
+            RateioDespesa.objects.create(
+                despesa=despesa,
+                descricao=r.descricao,
+                valor=r.valor,
+                categoria=cat_rateio
+            )
 
     return despesa
 
@@ -519,6 +495,7 @@ def excluir_despesa(request, despesa_id: int):
         raise HttpError(400, "Nenhuma loja ativa no contexto")
 
     despesa = get_object_or_404(ContaPagar, id=despesa_id, loja_id_externo=active_loja_id)
+    _garantir_periodo_caixa_aberto(active_loja_id, despesa.data_transacao)
     despesa.delete()
     return {"success": True, "message": f"Despesa {despesa_id} excluída."}
 
@@ -643,6 +620,7 @@ class FechamentoOut(Schema):
     total_dinheiro: Decimal = Decimal('0.00')
     total_cartao: Decimal = Decimal('0.00')
     total_pix: Decimal = Decimal('0.00')
+    total_outros: Decimal = Decimal('0.00')
     impostos: Decimal
     receita_liquida: Decimal
     custos_produtos: Decimal
@@ -652,6 +630,68 @@ class FechamentoOut(Schema):
     despesas_financeiras: Decimal
     lucro_liquido: Decimal
     status: str
+
+
+class FechamentoPersistidoOut(Schema):
+    loja_id: int
+    mes: int
+    ano: int
+    faturamento_bruto: Decimal
+    total_dinheiro: Optional[Decimal] = None
+    total_cartao: Optional[Decimal] = None
+    total_pix: Optional[Decimal] = None
+    total_outros: Optional[Decimal] = None
+    impostos: Optional[Decimal] = None
+    receita_liquida: Decimal
+    custos_produtos: Optional[Decimal] = None
+    lucro_bruto: Optional[Decimal] = None
+    despesas_operacionais: Decimal
+    resultado_operacional: Decimal
+    despesas_financeiras: Optional[Decimal] = None
+    lucro_liquido: Optional[Decimal] = None
+    status: str
+
+
+@router.get(
+    "/fechamento/{loja_id}/{mes}/{ano}",
+    response=FechamentoPersistidoOut,
+)
+def obter_fechamento_persistido(request, loja_id: int, mes: int, ano: int):
+    """Retorna exclusivamente o estado congelado já persistido do fechamento."""
+    check_permission(request, loja_id)
+    if not (1 <= mes <= 12):
+        raise HttpError(400, "Mês inválido.")
+
+    fechamento = get_object_or_404(
+        FechamentoMensal,
+        loja_id_externo=loja_id,
+        mes=mes,
+        ano=ano,
+    )
+    snapshot = fechamento.dados_auditoria_snapshot
+    resumo = snapshot.get('resumo', {}) if isinstance(snapshot, dict) else {}
+    if not isinstance(resumo, dict):
+        resumo = {}
+
+    return {
+        "loja_id": fechamento.loja_id_externo,
+        "mes": fechamento.mes,
+        "ano": fechamento.ano,
+        "faturamento_bruto": fechamento.faturamento_bruto,
+        "total_dinheiro": resumo.get('total_dinheiro'),
+        "total_cartao": resumo.get('total_cartao'),
+        "total_pix": resumo.get('total_pix'),
+        "total_outros": resumo.get('total_outros'),
+        "impostos": resumo.get('impostos'),
+        "receita_liquida": fechamento.receita_liquida,
+        "custos_produtos": resumo.get('custos_produtos'),
+        "lucro_bruto": resumo.get('lucro_bruto'),
+        "despesas_operacionais": fechamento.total_despesas,
+        "resultado_operacional": fechamento.resultado_operacional,
+        "despesas_financeiras": resumo.get('despesas_financeiras_total'),
+        "lucro_liquido": resumo.get('lucro_liquido'),
+        "status": fechamento.status,
+    }
 
 @router.post("/fechamento/calcular/{loja_id}/{mes}/{ano}", response=FechamentoOut)
 def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
@@ -664,6 +704,12 @@ def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
 
     check_permission(request, loja_id)
 
+    fechamento_existente = FechamentoMensal.objects.filter(
+        loja_id_externo=loja_id, mes=mes, ano=ano
+    ).only('status').first()
+    if fechamento_existente and fechamento_existente.status == 'CONCLUIDO':
+        raise HttpError(409, "Período concluído não pode ser recalculado.")
+
     from financeiro_core.app.services.dre_service import DREService
     try:
         service = DREService()
@@ -673,7 +719,11 @@ def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
         resumo = dre_data['resumo']
 
         with transaction.atomic():
-            fechamento = FechamentoMensal.objects.filter(loja_id_externo=loja_id, mes=mes, ano=ano).first()
+            fechamento = FechamentoMensal.objects.select_for_update().filter(
+                loja_id_externo=loja_id, mes=mes, ano=ano
+            ).first()
+            if fechamento and fechamento.status == 'CONCLUIDO':
+                raise HttpError(409, "Período concluído não pode ser recalculado.")
             if not fechamento:
                 fechamento = FechamentoMensal(
                     loja_id_externo=loja_id, mes=mes, ano=ano, status='ABERTO'
@@ -694,9 +744,10 @@ def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
             "mes": fechamento.mes,
             "ano": fechamento.ano,
             "faturamento_bruto": fechamento.faturamento_bruto,
-            "total_dinheiro": Decimal('0.00'),
-            "total_cartao": Decimal('0.00'),
-            "total_pix": Decimal('0.00'),
+            "total_dinheiro": resumo['total_dinheiro'],
+            "total_cartao": resumo['total_cartao'],
+            "total_pix": resumo['total_pix'],
+            "total_outros": resumo['total_outros'],
             "impostos": resumo['impostos'],
             "receita_liquida": fechamento.receita_liquida,
             "custos_produtos": resumo['custos_produtos'],
@@ -707,6 +758,8 @@ def calcular_fechamento(request, loja_id: int, mes: int, ano: int):
             "lucro_liquido": resumo['lucro_liquido'],
             "status": fechamento.status,
         }
+    except HttpError:
+        raise
     except Exception as e:
         import traceback
         traceback.print_exc()

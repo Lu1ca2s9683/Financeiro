@@ -1,10 +1,15 @@
-import json
 import unittest
 from unittest.mock import patch
 
 from django.test import TestCase
 from django.contrib.auth.models import User
-from financeiro_core.models import ContaPagar, CategoriaDespesa, FechamentoMensal, Fornecedor
+from financeiro_core.models import (
+    CategoriaDespesa,
+    ContaPagar,
+    FechamentoMensal,
+    Fornecedor,
+    RateioDespesa,
+)
 from decimal import Decimal
 from datetime import date
 from ninja.testing import TestClient
@@ -110,9 +115,9 @@ class DespesasApiTest(TestCase):
             "fornecedor_id": self.fornecedor.id
         }
         response = self.client.put(f"/despesas/{self.despesa_fechada.id}", json=payload, headers=self.auth_headers)
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 409)
 
-    def test_move_despesa_to_closed_month(self, mock_faturamento):
+    def test_closed_competence_does_not_block_open_cash_period(self, mock_faturamento):
         payload = {
             "descricao": "Movendo para fechado",
             "loja_id": self.loja_id,
@@ -123,7 +128,7 @@ class DespesasApiTest(TestCase):
              "fornecedor_id": self.fornecedor.id
         }
         response = self.client.put(f"/despesas/{self.despesa_aberta.id}", json=payload, headers=self.auth_headers)
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 200)
 
     def test_access_wrong_store(self, mock_faturamento):
         # Tries to access store 1 with token for store 2
@@ -135,12 +140,10 @@ class DespesasApiTest(TestCase):
         response = self.client.get(f"/dashboard/resumo/{self.loja_id}/{self.mes_aberto}/{self.ano_aberto}", headers=headers_2)
         self.assertEqual(response.status_code, 403)
 
-    @unittest.expectedFailure
-    def test_dashboard_summary(self, mock_faturamento):
-        # KNOWN_BUG_PHASE_1: dashboard summary is not considering delayed expenses correctly
-        # 1. Despesa atrasada
+    def test_dashboard_does_not_fabricate_due_date_metrics(self, mock_faturamento):
+        # ContaPagar has no due-date field. Cash/competence dates are not due dates.
         ContaPagar.objects.create(
-            descricao="Atrasada",
+            descricao="Sem vencimento inferível",
             loja_id_externo=self.loja_id,
             categoria=self.categoria,
             valor_bruto=Decimal('50.00'),
@@ -148,10 +151,9 @@ class DespesasApiTest(TestCase):
             data_transacao=date(self.ano_aberto, self.mes_aberto, 5),
         )
 
-        # 2. Despesa vencendo hoje
         hoje = date.today()
         ContaPagar.objects.create(
-            descricao="Vence Hoje",
+            descricao="Transação hoje sem vencimento",
             loja_id_externo=self.loja_id,
             categoria=self.categoria,
             valor_bruto=Decimal('60.00'),
@@ -163,8 +165,30 @@ class DespesasApiTest(TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
 
-        self.assertGreaterEqual(data['despesas_atrasadas'], 1)
-        self.assertGreaterEqual(data['despesas_vencendo_semana'], 1)
+        self.assertEqual(data['despesas_atrasadas'], 0)
+        self.assertEqual(data['despesas_vencendo_semana'], 0)
+
+    def test_dashboard_total_uses_original_expense_value_once(self, mock_faturamento):
+        RateioDespesa.objects.create(
+            despesa=self.despesa_aberta,
+            descricao="Parte A",
+            valor=Decimal("60.00"),
+            categoria=self.categoria,
+        )
+        RateioDespesa.objects.create(
+            despesa=self.despesa_aberta,
+            descricao="Parte B",
+            valor=Decimal("39.99"),
+            categoria=self.categoria,
+        )
+
+        response = self.client.get(
+            f"/dashboard/resumo/{self.loja_id}/{self.mes_aberto}/{self.ano_aberto}",
+            headers=self.auth_headers,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Decimal(str(response.json()["total_despesas_mes"])), Decimal("100.00"))
 
     def test_get_dre_no_side_effects(self, mock_faturamento):
         # 15. GET do DRE não cria FechamentoMensal.
@@ -178,47 +202,29 @@ class DespesasApiTest(TestCase):
         count_after = FechamentoMensal.objects.count()
         self.assertEqual(count_before, count_after)
 
-    def test_post_fechamento_preserves_status(self, mock_faturamento):
-        # 5. POST preserva status CONCLUIDO.
+    def test_post_fechamento_rejects_closed_period_without_mutation(self, mock_faturamento):
         from financeiro_core.models import FechamentoMensal
 
         fechamento = FechamentoMensal.objects.get(loja_id_externo=self.loja_id, mes=self.mes_fechado, ano=self.ano_fechado)
         self.assertEqual(fechamento.status, 'CONCLUIDO')
+        valores_antes = {
+            "faturamento_bruto": fechamento.faturamento_bruto,
+            "total_taxas": fechamento.total_taxas,
+            "receita_liquida": fechamento.receita_liquida,
+            "total_despesas": fechamento.total_despesas,
+            "resultado_operacional": fechamento.resultado_operacional,
+            "dados_auditoria_snapshot": fechamento.dados_auditoria_snapshot,
+        }
 
         response = self.client.post(f"/fechamento/calcular/{self.loja_id}/{self.mes_fechado}/{self.ano_fechado}", headers=self.auth_headers)
-        self.assertEqual(response.status_code, 200)
-
-        data = response.json()
-        self.assertEqual(
-            set(data),
-            {
-                "loja_id",
-                "mes",
-                "ano",
-                "faturamento_bruto",
-                "total_dinheiro",
-                "total_cartao",
-                "total_pix",
-                "impostos",
-                "receita_liquida",
-                "custos_produtos",
-                "lucro_bruto",
-                "despesas_operacionais",
-                "resultado_operacional",
-                "despesas_financeiras",
-                "lucro_liquido",
-                "status",
-            },
-        )
-        self.assertEqual(data["loja_id"], self.loja_id)
-        self.assertEqual(data["status"], "CONCLUIDO")
+        self.assertEqual(response.status_code, 409)
+        mock_faturamento.assert_not_called()
 
         fechamento.refresh_from_db()
         self.assertEqual(fechamento.status, 'CONCLUIDO')
-        json.dumps(fechamento.dados_auditoria_snapshot)
         self.assertEqual(
-            fechamento.dados_auditoria_snapshot["resumo"]["receita_bruta"],
-            "0.00",
+            {campo: getattr(fechamento, campo) for campo in valores_antes},
+            valores_antes,
         )
 
     def test_post_fechamento_invalid_month_returns_400(self, mock_faturamento):
