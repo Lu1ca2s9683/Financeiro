@@ -60,6 +60,9 @@ export default function DreGerencialPage() {
         setExpandedCats(prev => ({ ...prev, [id]: !prev[id] }));
     };
 
+    const composicao = dre?.composicao_recebimentos;
+    const qualidadeRecebimentos = dre?.qualidade_recebimentos;
+
     return (
         <main className="p-4 sm:p-8 space-y-8 animate-enter max-w-5xl mx-auto font-sans">
             {/* A. Cabeçalho */}
@@ -121,6 +124,151 @@ export default function DreGerencialPage() {
                             <span className="text-xl font-bold text-white">{formatCurrency(dre.resumo.lucro_liquido)} <span className="text-xs text-slate-400">({dre.resumo.margem_liquida_percentual}%)</span></span>
                         </div>
                     </div>
+
+                    {composicao && (
+                        <section className="bg-white border border-slate-200 shadow-sm p-4 sm:p-8">
+                            <div className="mb-6 border-b border-slate-100 pb-4">
+                                <h2 className="text-xl font-bold text-slate-900">COMPOSIÇÃO DOS RECEBIMENTOS</h2>
+                                <p className="text-sm text-slate-500 mt-1">Como a Receita Bruta do período foi recebida, sem alterar as linhas contábeis da DRE.</p>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                <div className="rounded-lg border border-slate-200 p-4">
+                                    <div className="flex justify-between gap-3 font-semibold text-slate-900">
+                                        <span>Dinheiro</span>
+                                        <span className="font-mono">{formatCurrency(composicao.dinheiro.total)}</span>
+                                    </div>
+                                </div>
+
+                                <div className="rounded-lg border border-slate-200 p-4 space-y-3">
+                                    <div className="flex justify-between gap-3 font-semibold text-slate-900 border-b border-slate-100 pb-2">
+                                        <span>Pix</span>
+                                        <span className="font-mono">{formatCurrency(composicao.pix.total)}</span>
+                                    </div>
+                                    {Number(composicao.pix.conta) > 0 && (
+                                        <div className="flex justify-between gap-3 text-sm text-slate-600">
+                                            <span>Pix em Conta</span>
+                                            <span className="font-mono">{formatCurrency(composicao.pix.conta)}</span>
+                                        </div>
+                                    )}
+                                    {Number(composicao.pix.maquina) > 0 && (
+                                        <div className="flex justify-between gap-3 text-sm text-slate-600">
+                                            <span>Pix via Maquininha</span>
+                                            <span className="font-mono">{formatCurrency(composicao.pix.maquina)}</span>
+                                        </div>
+                                    )}
+                                    {Number(composicao.pix.nao_detalhado) > 0 && (
+                                        <div className="flex justify-between gap-3 text-sm text-slate-600">
+                                            <span>Pix sem detalhamento</span>
+                                            <span className="font-mono">{formatCurrency(composicao.pix.nao_detalhado)}</span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="rounded-lg border border-slate-200 p-4 space-y-3">
+                                    <div className="flex justify-between gap-3 font-semibold text-slate-900 border-b border-slate-100 pb-2">
+                                        <span>Cartão</span>
+                                        <span className="font-mono">{formatCurrency(composicao.cartao.total)}</span>
+                                    </div>
+                                    {Number(composicao.cartao.debito) > 0 && (
+                                        <div className="flex justify-between gap-3 text-sm text-slate-600">
+                                            <span>Débito</span>
+                                            <span className="font-mono">{formatCurrency(composicao.cartao.debito)}</span>
+                                        </div>
+                                    )}
+                                    {Number(composicao.cartao.credito_avista) > 0 && (
+                                        <div className="flex justify-between gap-3 text-sm text-slate-600">
+                                            <span>Crédito à vista</span>
+                                            <span className="font-mono">{formatCurrency(composicao.cartao.credito_avista)}</span>
+                                        </div>
+                                    )}
+                                    {Number(composicao.cartao.credito_parcelado) > 0 && (
+                                        <div className="flex justify-between gap-3 text-sm text-slate-600">
+                                            <span>Crédito parcelado</span>
+                                            <span className="font-mono">{formatCurrency(composicao.cartao.credito_parcelado)}</span>
+                                        </div>
+                                    )}
+                                    {Number(composicao.cartao.credito_nao_identificado) > 0 && (
+                                        <div className="flex justify-between gap-3 text-sm text-slate-600">
+                                            <span>Crédito — parcelamento não informado</span>
+                                            <span className="font-mono">{formatCurrency(composicao.cartao.credito_nao_identificado)}</span>
+                                        </div>
+                                    )}
+                                    {Number(composicao.cartao.nao_identificado) > 0 && (
+                                        <div className="flex justify-between gap-3 text-sm text-slate-600">
+                                            <span>Cartão sem identificação</span>
+                                            <span className="font-mono">{formatCurrency(composicao.cartao.nao_identificado)}</span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="rounded-lg border border-slate-200 p-4 space-y-3">
+                                    <div className="flex justify-between gap-3 font-semibold text-slate-900 border-b border-slate-100 pb-2">
+                                        <span>Outros</span>
+                                        <span className="font-mono">{formatCurrency(composicao.outros.total)}</span>
+                                    </div>
+                                    {Number(composicao.outros.voucher) > 0 && (
+                                        <div className="flex justify-between gap-3 text-sm text-slate-600">
+                                            <span>Voucher</span>
+                                            <span className="font-mono">{formatCurrency(composicao.outros.voucher)}</span>
+                                        </div>
+                                    )}
+                                    {Number(composicao.outros.nao_identificado) > 0 && (
+                                        <div className="flex justify-between gap-3 text-sm text-slate-600">
+                                            <span>Outros</span>
+                                            <span className="font-mono">{formatCurrency(composicao.outros.nao_identificado)}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </section>
+                    )}
+
+                    {qualidadeRecebimentos && (
+                        qualidadeRecebimentos.possui_credito_sem_detalhe
+                        || qualidadeRecebimentos.possui_cartao_sem_subtipo
+                        || qualidadeRecebimentos.possui_pagamentos_elegiveis_sem_taxa
+                        || !qualidadeRecebimentos.receita_conservada
+                    ) && (
+                        <section className="space-y-3">
+                            {qualidadeRecebimentos.possui_credito_sem_detalhe && (
+                                <div className="bg-amber-50 border border-amber-200 text-amber-900 p-4 rounded-lg flex items-start gap-3">
+                                    <AlertCircle className="shrink-0 mt-0.5" size={20} />
+                                    <div>
+                                        <p className="font-semibold text-sm">Detalhamento indisponível</p>
+                                        <p className="text-sm">{formatCurrency(qualidadeRecebimentos.valor_credito_sem_detalhe)} em vendas no crédito não possui informação de parcelamento no Sistema de Vendas. O sistema não estima uma taxa de crédito sem essa informação.</p>
+                                    </div>
+                                </div>
+                            )}
+                            {qualidadeRecebimentos.possui_cartao_sem_subtipo && (
+                                <div className="bg-amber-50 border border-amber-200 text-amber-900 p-4 rounded-lg flex items-start gap-3">
+                                    <AlertCircle className="shrink-0 mt-0.5" size={20} />
+                                    <div>
+                                        <p className="font-semibold text-sm">Informação pendente</p>
+                                        <p className="text-sm">{formatCurrency(qualidadeRecebimentos.valor_cartao_sem_subtipo)} em pagamentos de cartão não possui modalidade identificada. Nenhuma taxa foi estimada para esse valor.</p>
+                                    </div>
+                                </div>
+                            )}
+                            {qualidadeRecebimentos.possui_pagamentos_elegiveis_sem_taxa && (
+                                <div className="bg-amber-50 border border-amber-200 text-amber-900 p-4 rounded-lg flex items-start gap-3">
+                                    <AlertCircle className="shrink-0 mt-0.5" size={20} />
+                                    <div>
+                                        <p className="font-semibold text-sm">Taxa não configurada</p>
+                                        <p className="text-sm">{formatCurrency(qualidadeRecebimentos.valor_pagamentos_sem_taxa_configurada)} em pagamentos de modalidade conhecida não encontrou uma taxa aplicável configurada. O Resultado Líquido pode estar superestimado até a configuração correspondente.</p>
+                                    </div>
+                                </div>
+                            )}
+                            {!qualidadeRecebimentos.receita_conservada && (
+                                <div className="bg-rose-50 border border-rose-200 text-rose-800 p-4 rounded-lg flex items-start gap-3">
+                                    <AlertCircle className="shrink-0 mt-0.5" size={20} />
+                                    <div>
+                                        <p className="font-semibold text-sm">Composição pendente</p>
+                                        <p className="text-sm">A composição dos recebimentos difere da Receita Bruta em {formatCurrency(qualidadeRecebimentos.diferenca_conservacao)}. Os dados de origem precisam ser revisados.</p>
+                                    </div>
+                                </div>
+                            )}
+                        </section>
+                    )}
 
                     {/* C. DRE em cascata */}
                     <div className="bg-white border border-slate-200 shadow-sm p-4 sm:p-8 overflow-x-auto">

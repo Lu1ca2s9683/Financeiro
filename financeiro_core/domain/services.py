@@ -50,15 +50,6 @@ class CalculadoraFinanceira:
         'PIX': 'PIX',
         'PIX_MAQUINA': 'PIX',
     }
-    _TIPOS_PIX = {'PIX', 'PIX_CONTA', 'PIX_MAQUINA'}
-    _TIPOS_CARTAO = {
-        'DEBITO',
-        'CREDITO_AVISTA',
-        'CREDITO_PARCELADO',
-        'CREDITO_NAO_IDENTIFICADO',
-        'CARTAO_NAO_IDENTIFICADO',
-    }
-
     @staticmethod
     def _arredondar(valor: Decimal) -> Decimal:
         """Helper para garantir 2 casas decimais em tudo."""
@@ -80,6 +71,9 @@ class CalculadoraFinanceira:
         """
         total_bruto = Decimal('0.00')
         total_taxas = Decimal('0.00')
+        valor_pagamentos_elegiveis_taxa = Decimal('0.00')
+        valor_pagamentos_com_taxa_configurada = Decimal('0.00')
+        valor_pagamentos_sem_taxa_configurada = Decimal('0.00')
         
         for item in itens_venda:
             valor_item = item.valor_bruto
@@ -90,6 +84,7 @@ class CalculadoraFinanceira:
             )
             taxa = None
             if tipo_taxa:
+                valor_pagamentos_elegiveis_taxa += valor_item
                 taxa = repositorio_taxas.buscar_taxa(
                     loja_id,
                     tipo_taxa,
@@ -98,6 +93,7 @@ class CalculadoraFinanceira:
                 )
             
             if taxa:
+                valor_pagamentos_com_taxa_configurada += valor_item
                 # O contrato atual representa um agregado por forma/bandeira. Sem uma
                 # contagem de ocorrências comprovada no Sales, a taxa fixa permanece
                 # aplicada uma vez por DTO agregado.
@@ -106,8 +102,8 @@ class CalculadoraFinanceira:
                 
                 # Importante: Arredondamos item a item para evitar acumulo de dízimas
                 total_taxas += CalculadoraFinanceira._arredondar(custo_item)
-            else:
-                pass
+            elif tipo_taxa:
+                valor_pagamentos_sem_taxa_configurada += valor_item
                 
         # Garante totais arredondados
         total_bruto = CalculadoraFinanceira._arredondar(total_bruto)
@@ -118,15 +114,49 @@ class CalculadoraFinanceira:
         total_cartao = Decimal('0.00')
         total_pix = Decimal('0.00')
         total_outros = Decimal('0.00')
+        total_pix_conta = Decimal('0.00')
+        total_pix_maquina = Decimal('0.00')
+        total_pix_nao_detalhado = Decimal('0.00')
+        total_debito = Decimal('0.00')
+        total_credito_avista = Decimal('0.00')
+        total_credito_parcelado = Decimal('0.00')
+        total_credito_nao_identificado = Decimal('0.00')
+        total_cartao_nao_identificado = Decimal('0.00')
+        total_voucher = Decimal('0.00')
+        total_outros_nao_identificados = Decimal('0.00')
         for item in itens_venda:
             if item.tipo_pagamento == 'DINHEIRO':
                 total_dinheiro += item.valor_bruto
-            elif item.tipo_pagamento in CalculadoraFinanceira._TIPOS_PIX:
+            elif item.tipo_pagamento == 'PIX_CONTA':
                 total_pix += item.valor_bruto
-            elif item.tipo_pagamento in CalculadoraFinanceira._TIPOS_CARTAO:
+                total_pix_conta += item.valor_bruto
+            elif item.tipo_pagamento == 'PIX_MAQUINA':
+                total_pix += item.valor_bruto
+                total_pix_maquina += item.valor_bruto
+            elif item.tipo_pagamento == 'PIX':
+                total_pix += item.valor_bruto
+                total_pix_nao_detalhado += item.valor_bruto
+            elif item.tipo_pagamento == 'DEBITO':
                 total_cartao += item.valor_bruto
+                total_debito += item.valor_bruto
+            elif item.tipo_pagamento == 'CREDITO_AVISTA':
+                total_cartao += item.valor_bruto
+                total_credito_avista += item.valor_bruto
+            elif item.tipo_pagamento == 'CREDITO_PARCELADO':
+                total_cartao += item.valor_bruto
+                total_credito_parcelado += item.valor_bruto
+            elif item.tipo_pagamento == 'CREDITO_NAO_IDENTIFICADO':
+                total_cartao += item.valor_bruto
+                total_credito_nao_identificado += item.valor_bruto
+            elif item.tipo_pagamento == 'CARTAO_NAO_IDENTIFICADO':
+                total_cartao += item.valor_bruto
+                total_cartao_nao_identificado += item.valor_bruto
+            elif item.tipo_pagamento == 'VOUCHER':
+                total_outros += item.valor_bruto
+                total_voucher += item.valor_bruto
             else:
                 total_outros += item.valor_bruto
+                total_outros_nao_identificados += item.valor_bruto
 
         return {
             "total_bruto": total_bruto,
@@ -135,4 +165,35 @@ class CalculadoraFinanceira:
             "total_cartao": CalculadoraFinanceira._arredondar(total_cartao),
             "total_pix": CalculadoraFinanceira._arredondar(total_pix),
             "total_outros": CalculadoraFinanceira._arredondar(total_outros),
+            "total_pix_conta": CalculadoraFinanceira._arredondar(total_pix_conta),
+            "total_pix_maquina": CalculadoraFinanceira._arredondar(total_pix_maquina),
+            "total_pix_nao_detalhado": CalculadoraFinanceira._arredondar(
+                total_pix_nao_detalhado
+            ),
+            "total_debito": CalculadoraFinanceira._arredondar(total_debito),
+            "total_credito_avista": CalculadoraFinanceira._arredondar(
+                total_credito_avista
+            ),
+            "total_credito_parcelado": CalculadoraFinanceira._arredondar(
+                total_credito_parcelado
+            ),
+            "total_credito_nao_identificado": CalculadoraFinanceira._arredondar(
+                total_credito_nao_identificado
+            ),
+            "total_cartao_nao_identificado": CalculadoraFinanceira._arredondar(
+                total_cartao_nao_identificado
+            ),
+            "total_voucher": CalculadoraFinanceira._arredondar(total_voucher),
+            "total_outros_nao_identificados": CalculadoraFinanceira._arredondar(
+                total_outros_nao_identificados
+            ),
+            "valor_pagamentos_elegiveis_taxa": CalculadoraFinanceira._arredondar(
+                valor_pagamentos_elegiveis_taxa
+            ),
+            "valor_pagamentos_com_taxa_configurada": CalculadoraFinanceira._arredondar(
+                valor_pagamentos_com_taxa_configurada
+            ),
+            "valor_pagamentos_sem_taxa_configurada": CalculadoraFinanceira._arredondar(
+                valor_pagamentos_sem_taxa_configurada
+            ),
         }

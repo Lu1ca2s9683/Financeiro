@@ -63,3 +63,35 @@ class FrontendPhase1ContractTest(SimpleTestCase):
 
         self.assertIn("data: new Date()", source)
         self.assertNotIn("data_ocorrencia", source)
+
+    def test_dre_types_expose_payment_composition_and_quality(self):
+        source = self._read_frontend(Path("services") / "api.ts")
+
+        self.assertIn("composicao_recebimentos", source)
+        self.assertIn("qualidade_recebimentos", source)
+        self.assertIn("credito_nao_identificado", source)
+        self.assertIn("valor_pagamentos_sem_taxa_configurada", source)
+
+    def test_dre_page_explains_payment_composition_without_dashboard_changes(self):
+        source = self._read_frontend(Path("app") / "relatorios" / "dre" / "page.tsx")
+        dashboard = self._read_frontend(Path("app") / "page.tsx")
+
+        self.assertIn("COMPOSIÇÃO DOS RECEBIMENTOS", source)
+        self.assertIn("Pix em Conta", source)
+        self.assertIn("Pix via Maquininha", source)
+        self.assertIn("Crédito — parcelamento não informado", source)
+        self.assertIn("Taxa não configurada", source)
+        self.assertNotIn("COMPOSIÇÃO DOS RECEBIMENTOS", dashboard)
+
+    def test_reporting_hub_describes_only_current_capabilities(self):
+        source = self._read_frontend(Path("app") / "relatorios" / "page.tsx")
+        normalized = source.lower()
+
+        self.assertIn("regime de caixa", normalized)
+        self.assertIn('href="/relatorios/dre"', source)
+        self.assertIn(">Abrir DRE<", source)
+        self.assertIn('href="/despesas"', source)
+        self.assertIn(">Consultar despesas<", source)
+        self.assertNotIn("Baixar Excel", source)
+        self.assertNotIn("detalhado por competência", normalized)
+        self.assertNotIn("centro de custo", normalized)

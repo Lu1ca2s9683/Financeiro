@@ -6,6 +6,25 @@ class DREXMLGenerator:
     def __init__(self, dre_data):
         self.dre = dre_data
 
+    @staticmethod
+    def _valor_serializado(valor):
+        if isinstance(valor, bool):
+            return "true" if valor else "false"
+        if isinstance(valor, Decimal):
+            return f"{valor:.2f}"
+        if isinstance(valor, (int, float)):
+            return f"{Decimal(str(valor)):.2f}"
+        return str(valor)
+
+    @classmethod
+    def _adicionar_estrutura(cls, parent, dados):
+        for chave, valor in dados.items():
+            elemento = ET.SubElement(parent, chave)
+            if isinstance(valor, dict):
+                cls._adicionar_estrutura(elemento, valor)
+            else:
+                elemento.text = cls._valor_serializado(valor)
+
     def gerar(self, response: HttpResponse):
         root = ET.Element("dre", versao="1.0", regime="CAIXA")
 
@@ -28,6 +47,21 @@ class DREXMLGenerator:
         for k, v in resumo_data.items():
             val_str = f"{float(v):.2f}"
             ET.SubElement(resumo, k).text = val_str
+
+        composicao_data = self.dre.get("composicao_recebimentos")
+        if composicao_data:
+            composicao = ET.SubElement(root, "composicao_recebimentos")
+            self._adicionar_estrutura(composicao, composicao_data)
+
+        qualidade_recebimentos_data = self.dre.get("qualidade_recebimentos")
+        if qualidade_recebimentos_data:
+            qualidade_recebimentos = ET.SubElement(
+                root, "qualidade_recebimentos"
+            )
+            self._adicionar_estrutura(
+                qualidade_recebimentos,
+                qualidade_recebimentos_data,
+            )
 
         # C. Linhas
         linhas_data = self.dre.get("linhas", [])

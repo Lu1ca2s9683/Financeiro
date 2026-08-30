@@ -1,4 +1,6 @@
 import io
+from decimal import Decimal
+
 from django.http import HttpResponse
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
@@ -13,6 +15,12 @@ class DREPDFGenerator:
         self.linhas = self.dre.get("linhas", [])
         self.grupos = self.dre.get("grupos_detalhados", [])
         self.qualidade = self.dre.get("qualidade_dados", {})
+        self.composicao_recebimentos = self.dre.get(
+            "composicao_recebimentos", {}
+        )
+        self.qualidade_recebimentos = self.dre.get(
+            "qualidade_recebimentos", {}
+        )
         self.styles = getSampleStyleSheet()
 
     def gerar(self, response: HttpResponse):
@@ -22,7 +30,7 @@ class DREPDFGenerator:
         # Estilos Customizados
         title_style = ParagraphStyle(name="TitleStyle", parent=self.styles['Heading1'], fontSize=16, spaceAfter=6, textColor=colors.HexColor("#1e293b"))
         subtitle_style = ParagraphStyle(name="SubTitleStyle", parent=self.styles['Normal'], fontSize=10, textColor=colors.HexColor("#64748b"), spaceAfter=20)
-        heading_style = ParagraphStyle(name="Heading2Style", parent=self.styles['Heading2'], fontSize=12, textColor=colors.HexColor("#1e293b"), spaceBefore=15, spaceAfter=10)
+        heading_style = ParagraphStyle(name="Heading2Style", parent=self.styles['Heading2'], fontSize=12, textColor=colors.HexColor("#1e293b"), spaceBefore=15, spaceAfter=10, keepWithNext=1)
         normal_style = self.styles['Normal']
 
         # A. Cabeçalho
@@ -81,6 +89,140 @@ class DREPDFGenerator:
         ]))
         elements.append(t_resumo)
         elements.append(Spacer(1, 20))
+
+        if self.composicao_recebimentos:
+            elements.append(Paragraph("Composição dos Recebimentos", heading_style))
+            recebimentos_data = [["Grupo", "Detalhamento", "Valor"]]
+            linhas_totais = []
+
+            def adicionar_grupo(nome, dados, detalhes):
+                linhas_totais.append(len(recebimentos_data))
+                recebimentos_data.append([
+                    nome,
+                    "Total",
+                    format_currency(dados.get("total", 0)),
+                ])
+                for chave, descricao in detalhes:
+                    valor = dados.get(chave, 0)
+                    if valor and Decimal(str(valor)) != Decimal('0.00'):
+                        recebimentos_data.append([
+                            "",
+                            descricao,
+                            format_currency(valor),
+                        ])
+
+            adicionar_grupo(
+                "Dinheiro",
+                self.composicao_recebimentos.get("dinheiro", {}),
+                [],
+            )
+            adicionar_grupo(
+                "Pix",
+                self.composicao_recebimentos.get("pix", {}),
+                [
+                    ("conta", "Pix em Conta"),
+                    ("maquina", "Pix via Maquininha"),
+                    ("nao_detalhado", "Pix sem detalhamento"),
+                ],
+            )
+            adicionar_grupo(
+                "Cartão",
+                self.composicao_recebimentos.get("cartao", {}),
+                [
+                    ("debito", "Débito"),
+                    ("credito_avista", "Crédito à vista"),
+                    ("credito_parcelado", "Crédito parcelado"),
+                    (
+                        "credito_nao_identificado",
+                        "Crédito - parcelamento não informado",
+                    ),
+                    ("nao_identificado", "Cartão sem identificação"),
+                ],
+            )
+            adicionar_grupo(
+                "Outros",
+                self.composicao_recebimentos.get("outros", {}),
+                [
+                    ("voucher", "Voucher"),
+                    ("nao_identificado", "Outros"),
+                ],
+            )
+
+            t_recebimentos = Table(
+                recebimentos_data,
+                colWidths=[100, 330, 100],
+                repeatRows=1,
+            )
+            recebimentos_style = TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1e293b")),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                ('ALIGN', (2,0), (2,-1), 'RIGHT'),
+                ('FONTSIZE', (0,0), (-1,-1), 8),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+                ('TOPPADDING', (0,0), (-1,-1), 4),
+                ('LINEBELOW', (0,0), (-1,-1), 0.25, colors.lightgrey),
+            ])
+            for indice in linhas_totais:
+                recebimentos_style.add(
+                    'BACKGROUND',
+                    (0, indice),
+                    (-1, indice),
+                    colors.HexColor("#f1f5f9"),
+                )
+                recebimentos_style.add(
+                    'FONTNAME', (0, indice), (-1, indice), 'Helvetica-Bold'
+                )
+            t_recebimentos.setStyle(recebimentos_style)
+            elements.append(t_recebimentos)
+            elements.append(Spacer(1, 10))
+
+        if self.qualidade_recebimentos:
+            avisos_recebimentos = []
+            q_receb = self.qualidade_recebimentos
+            if q_receb.get("possui_credito_sem_detalhe"):
+                avisos_recebimentos.append(
+                    "Crédito com detalhamento indisponível: "
+                    f"R$ {format_currency(q_receb.get('valor_credito_sem_detalhe'))} "
+                    "não possui informação de parcelamento. Nenhuma taxa específica "
+                    "de crédito foi estimada para esse valor."
+                )
+            if q_receb.get("possui_cartao_sem_subtipo"):
+                avisos_recebimentos.append(
+                    "Cartão sem identificação de modalidade: "
+                    f"R$ {format_currency(q_receb.get('valor_cartao_sem_subtipo'))}. "
+                    "Nenhuma taxa foi estimada para esse valor."
+                )
+            if q_receb.get("possui_pagamentos_elegiveis_sem_taxa"):
+                avisos_recebimentos.append(
+                    "Taxa não configurada: "
+                    f"R$ {format_currency(q_receb.get('valor_pagamentos_sem_taxa_configurada'))} "
+                    "em pagamentos de modalidade conhecida não encontrou taxa "
+                    "aplicável. O Resultado Líquido pode estar superestimado."
+                )
+            if not q_receb.get("receita_conservada", True):
+                avisos_recebimentos.append(
+                    "A composição dos recebimentos não conserva a Receita Bruta. "
+                    "O período requer revisão dos dados de origem."
+                )
+
+            if avisos_recebimentos:
+                elements.append(Paragraph(
+                    "Qualidade / Limitações dos Recebimentos",
+                    heading_style,
+                ))
+                for aviso in avisos_recebimentos:
+                    elements.append(Paragraph(
+                        aviso,
+                        ParagraphStyle(
+                            name="PaymentWarningStyle",
+                            parent=self.styles['Normal'],
+                            fontSize=8,
+                            textColor=colors.HexColor("#92400e"),
+                            spaceAfter=5,
+                        ),
+                    ))
+                elements.append(Spacer(1, 10))
 
         # C. DRE Cascata
         elements.append(Paragraph("Demonstrativo Detalhado", heading_style))
