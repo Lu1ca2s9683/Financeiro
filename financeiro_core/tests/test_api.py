@@ -297,6 +297,8 @@ class DespesasApiTest(TestCase):
 
         # Tem qualidade de dados
         self.assertIn('qualidade_dados', data)
+        self.assertIn('qualidade_recebimentos', data)
+        self.assertIn('composicao_recebimentos', data)
         self.assertIn('resumo', data)
         self.assertIn('grupos_detalhados', data)
 
@@ -336,3 +338,5 @@ class DespesasApiTest(TestCase):
         self.assertEqual(root.tag, 'dre')
         self.assertEqual(root.attrib.get('versao'), '1.0')
         self.assertEqual(root.attrib.get('regime'), 'CAIXA')
+        self.assertIsNotNone(root.find('composicao_recebimentos'))
+        self.assertIsNotNone(root.find('qualidade_recebimentos'))

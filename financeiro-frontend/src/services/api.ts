@@ -110,6 +110,44 @@ export interface DRELinha {
   ordem: number;
 }
 
+export interface DREComposicaoRecebimentos {
+  dinheiro: {
+    total: number;
+  };
+  pix: {
+    total: number;
+    conta: number;
+    maquina: number;
+    nao_detalhado: number;
+  };
+  cartao: {
+    total: number;
+    debito: number;
+    credito_avista: number;
+    credito_parcelado: number;
+    credito_nao_identificado: number;
+    nao_identificado: number;
+  };
+  outros: {
+    total: number;
+    voucher: number;
+    nao_identificado: number;
+  };
+}
+
+export interface DREQualidadeRecebimentos {
+  receita_conservada: boolean;
+  diferenca_conservacao: number;
+  valor_credito_sem_detalhe: number;
+  valor_cartao_sem_subtipo: number;
+  valor_pagamentos_elegiveis_taxa: number;
+  valor_pagamentos_com_taxa_configurada: number;
+  valor_pagamentos_sem_taxa_configurada: number;
+  possui_credito_sem_detalhe: boolean;
+  possui_cartao_sem_subtipo: boolean;
+  possui_pagamentos_elegiveis_sem_taxa: boolean;
+}
+
 export interface DREData {
   identificacao: {
     loja_id: number;
@@ -144,6 +182,8 @@ export interface DREData {
     margem_operacional_percentual: number;
     margem_liquida_percentual: number;
   };
+  composicao_recebimentos?: DREComposicaoRecebimentos;
+  qualidade_recebimentos?: DREQualidadeRecebimentos;
   linhas: DRELinha[];
   grupos_detalhados: DREGrupo[];
   qualidade_dados: {

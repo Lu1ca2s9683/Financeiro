@@ -195,6 +195,70 @@ class DREService:
         nome_meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
         periodo_descricao = f"{nome_meses[mes-1]} de {ano}"
 
+        composicao_recebimentos = {
+            "dinheiro": {
+                "total": vendas['total_dinheiro'],
+            },
+            "pix": {
+                "total": vendas['total_pix'],
+                "conta": vendas['total_pix_conta'],
+                "maquina": vendas['total_pix_maquina'],
+                "nao_detalhado": vendas['total_pix_nao_detalhado'],
+            },
+            "cartao": {
+                "total": vendas['total_cartao'],
+                "debito": vendas['total_debito'],
+                "credito_avista": vendas['total_credito_avista'],
+                "credito_parcelado": vendas['total_credito_parcelado'],
+                "credito_nao_identificado": vendas[
+                    'total_credito_nao_identificado'
+                ],
+                "nao_identificado": vendas['total_cartao_nao_identificado'],
+            },
+            "outros": {
+                "total": vendas['total_outros'],
+                "voucher": vendas['total_voucher'],
+                "nao_identificado": vendas['total_outros_nao_identificados'],
+            },
+        }
+        total_composicao = (
+            vendas['total_dinheiro']
+            + vendas['total_pix']
+            + vendas['total_cartao']
+            + vendas['total_outros']
+        )
+        diferenca_conservacao_receita = self._round(
+            total_composicao - faturamento_bruto
+        )
+        qualidade_recebimentos = {
+            "receita_conservada": diferenca_conservacao_receita == Decimal('0.00'),
+            "diferenca_conservacao": diferenca_conservacao_receita,
+            "valor_credito_sem_detalhe": vendas[
+                'total_credito_nao_identificado'
+            ],
+            "valor_cartao_sem_subtipo": vendas[
+                'total_cartao_nao_identificado'
+            ],
+            "valor_pagamentos_elegiveis_taxa": vendas[
+                'valor_pagamentos_elegiveis_taxa'
+            ],
+            "valor_pagamentos_com_taxa_configurada": vendas[
+                'valor_pagamentos_com_taxa_configurada'
+            ],
+            "valor_pagamentos_sem_taxa_configurada": vendas[
+                'valor_pagamentos_sem_taxa_configurada'
+            ],
+            "possui_credito_sem_detalhe": (
+                vendas['total_credito_nao_identificado'] > 0
+            ),
+            "possui_cartao_sem_subtipo": (
+                vendas['total_cartao_nao_identificado'] > 0
+            ),
+            "possui_pagamentos_elegiveis_sem_taxa": (
+                vendas['valor_pagamentos_sem_taxa_configurada'] > 0
+            ),
+        }
+
         # Montagem do Contrato Central
         contrato = {
             "identificacao": {
@@ -230,6 +294,8 @@ class DREService:
                 "margem_operacional_percentual": calc_margem(resultado_operacional),
                 "margem_liquida_percentual": calc_margem(lucro_liquido)
             },
+            "composicao_recebimentos": composicao_recebimentos,
+            "qualidade_recebimentos": qualidade_recebimentos,
             "linhas": [
                 {"codigo": "1", "descricao": "Receita Bruta Operacional", "tipo": "TOTAL", "nivel": 0, "ordem": 1, "valor": faturamento_bruto, "percentual_receita": calc_perc(faturamento_bruto)},
                 {"codigo": "2", "descricao": "(-) Deduções e Impostos sobre Vendas", "tipo": "SUBTRACAO", "nivel": 1, "ordem": 2, "valor": impostos, "percentual_receita": calc_perc(impostos)},
@@ -241,7 +307,7 @@ class DREService:
                 {"codigo": "8", "descricao": "(-) Despesas de Vendas e Marketing", "tipo": "SUBTRACAO", "nivel": 1, "ordem": 8, "valor": despesas_marketing, "percentual_receita": calc_perc(despesas_marketing)},
                 {"codigo": "9", "descricao": "Total de Despesas Operacionais", "tipo": "TOTAL", "nivel": 1, "ordem": 9, "valor": despesas_operacionais, "percentual_receita": calc_perc(despesas_operacionais)},
                 {"codigo": "10", "descricao": "Resultado Operacional antes do Resultado Financeiro", "tipo": "TOTAL", "nivel": 0, "ordem": 10, "valor": resultado_operacional, "percentual_receita": calc_perc(resultado_operacional)},
-                {"codigo": "11", "descricao": "(-) Taxas de Cartão", "tipo": "SUBTRACAO", "nivel": 1, "ordem": 11, "valor": taxas_cartao, "percentual_receita": calc_perc(taxas_cartao)},
+                {"codigo": "11", "descricao": "(-) Taxas de Meios de Pagamento", "tipo": "SUBTRACAO", "nivel": 1, "ordem": 11, "valor": taxas_cartao, "percentual_receita": calc_perc(taxas_cartao)},
                 {"codigo": "12", "descricao": "(-) Outras Despesas Financeiras", "tipo": "SUBTRACAO", "nivel": 1, "ordem": 12, "valor": outras_despesas_financeiras, "percentual_receita": calc_perc(outras_despesas_financeiras)},
                 {"codigo": "13", "descricao": "Total de Despesas Financeiras", "tipo": "TOTAL", "nivel": 1, "ordem": 13, "valor": despesas_financeiras_total, "percentual_receita": calc_perc(despesas_financeiras_total)},
                 {"codigo": "14", "descricao": "Resultado Líquido do Exercício", "tipo": "TOTAL", "nivel": 0, "ordem": 14, "valor": lucro_liquido, "percentual_receita": calc_perc(lucro_liquido)}

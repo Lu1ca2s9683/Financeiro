@@ -1,6 +1,7 @@
 'use client';
 
-import { BarChart3, FileSpreadsheet, Download } from 'lucide-react';
+import Link from 'next/link';
+import { ArrowRight, BarChart3, FileSpreadsheet } from 'lucide-react';
 
 export default function RelatoriosPage() {
   return (
@@ -20,11 +21,11 @@ export default function RelatoriosPage() {
           </div>
           <h3 className="font-bold text-lg text-slate-800 mb-2">DRE Gerencial</h3>
           <p className="text-slate-500 text-sm mb-6">
-            Demonstrativo do Resultado do Exercício detalhado por competência, com visão vertical e horizontal.
+            Demonstrativo do Resultado do Exercício em regime de caixa, com composição dos recebimentos e visão vertical.
           </p>
-          <button className="w-full py-2 border border-slate-200 rounded-lg text-slate-600 font-medium hover:bg-slate-50 flex items-center justify-center gap-2">
-            <Download size={16} /> Exportar PDF
-          </button>
+          <Link href="/relatorios/dre" className="w-full py-2 border border-slate-200 rounded-lg text-slate-600 font-medium hover:bg-slate-50 flex items-center justify-center gap-2">
+            <span>Abrir DRE</span> <ArrowRight size={16} />
+          </Link>
         </div>
 
         {/* Card Extrato */}
@@ -34,11 +35,11 @@ export default function RelatoriosPage() {
           </div>
           <h3 className="font-bold text-lg text-slate-800 mb-2">Extrato de Despesas</h3>
           <p className="text-slate-500 text-sm mb-6">
-            Listagem analítica de todas as contas a pagar, filtrável por categoria, fornecedor e centro de custo.
+            Listagem analítica das contas a pagar, com classificação por categoria e identificação de fornecedor.
           </p>
-          <button className="w-full py-2 border border-slate-200 rounded-lg text-slate-600 font-medium hover:bg-slate-50 flex items-center justify-center gap-2">
-            <Download size={16} /> Baixar Excel
-          </button>
+          <Link href="/despesas" className="w-full py-2 border border-slate-200 rounded-lg text-slate-600 font-medium hover:bg-slate-50 flex items-center justify-center gap-2">
+            <span>Consultar despesas</span> <ArrowRight size={16} />
+          </Link>
         </div>
       </div>
     </main>
