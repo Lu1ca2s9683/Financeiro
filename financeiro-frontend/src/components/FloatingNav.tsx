@@ -1,5 +1,6 @@
 'use client';
 
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -8,66 +9,88 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
+import './dock-nav.css';
+
+const menuItems = [
+  { icon: LayoutDashboard, label: 'Geral', href: '/' },
+  { icon: Wallet, label: 'Tesouraria', href: '/tesouraria' },
+  { icon: FileText, label: 'Despesas', href: '/despesas' },
+  { icon: PieChart, label: 'DRE', href: '/relatorios/dre' },
+  { icon: Settings, label: 'Conferência', href: '/relatorios/conferencia' },
+  { icon: Settings, label: 'Configurações', href: '/configuracoes' },
+];
+
+// Usar CSS variables evita renderizações do React a cada movimento do mouse.
+function handleDockPointerMove(event: ReactPointerEvent<HTMLElement>) {
+  if (event.pointerType !== 'mouse') return;
+  const bounds = event.currentTarget.getBoundingClientRect();
+  event.currentTarget.style.setProperty('--dock-x', `${event.clientX - bounds.left}px`);
+  event.currentTarget.style.setProperty('--dock-y', `${event.clientY - bounds.top}px`);
+}
+
+function handleMagneticMove(event: ReactPointerEvent<HTMLElement>) {
+  if (event.pointerType !== 'mouse') return;
+  const bounds = event.currentTarget.getBoundingClientRect();
+  event.currentTarget.style.setProperty('--magnetic-x', `${(((event.clientX - bounds.left) / bounds.width) - 0.5) * 7}px`);
+  event.currentTarget.style.setProperty('--magnetic-y', `${(((event.clientY - bounds.top) / bounds.height) - 0.5) * 7}px`);
+}
+
+function resetMagnetic(event: ReactPointerEvent<HTMLElement>) {
+  event.currentTarget.style.removeProperty('--magnetic-x');
+  event.currentTarget.style.removeProperty('--magnetic-y');
+}
+
+const tooltipClasses = 'dock-tooltip pointer-events-none absolute left-1/2 top-full z-20 mt-3 -translate-x-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg dark:bg-white dark:text-slate-900';
 
 export function FloatingNav() {
   const pathname = usePathname();
   const { logout } = useAuth();
 
-  const menuItems = [
-    { icon: LayoutDashboard, label: 'Geral', href: '/' },
-    { icon: Wallet, label: 'Tesouraria', href: '/tesouraria' },
-    { icon: FileText, label: 'Despesas', href: '/despesas' },
-    { icon: PieChart, label: 'DRE', href: '/relatorios/dre' },
-    { icon: Settings, label: 'Conferência', href: '/relatorios/conferencia' },
-    { icon: Settings, label: 'Configurações', href: '/configuracoes' },
-  ];
-
   return (
-    <nav className="apple-floating-nav flex items-center gap-1.5 p-2 rounded-full bg-apple-glass shadow-[var(--shadow-apple-dark)] border border-slate-200/50 dark:border-slate-800/50 backdrop-blur-2xl transition-all duration-300">
+    <nav
+      aria-label="Navegação principal"
+      onPointerMove={handleDockPointerMove}
+      className="top-floating-nav relative isolate flex max-w-full items-center gap-0.5 rounded-full border border-slate-200/50 bg-apple-glass p-1.5 shadow-[var(--shadow-apple-dark)] backdrop-blur-2xl sm:gap-1.5 sm:p-2 dark:border-slate-800/50"
+    >
       {menuItems.map((item) => {
-        const isActive = pathname === item.href;
+        const isActive = item.href === '/'
+          ? pathname === '/'
+          : pathname === item.href || pathname.startsWith(`${item.href}/`);
         const Icon = item.icon;
 
         return (
           <Link
             key={item.href}
             href={item.href}
+            aria-label={item.label}
+            aria-current={isActive ? 'page' : undefined}
+            onPointerMove={handleMagneticMove}
+            onPointerLeave={resetMagnetic}
             className={cn(
-              "group relative flex items-center justify-center w-12 h-12 rounded-full transition-all duration-300 ease-out outline-none focus-visible:ring-2 focus-visible:ring-indigo-500",
+              'dock-nav-item group relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full outline-none transition-[background-color,box-shadow,color] duration-300 focus-visible:ring-2 focus-visible:ring-indigo-500 min-[400px]:h-11 min-[400px]:w-11 sm:h-12 sm:w-12',
               isActive
-                ? "bg-indigo-600 shadow-md text-white scale-105"
-                : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100/50 dark:hover:bg-slate-800/50"
+                ? 'bg-indigo-600 text-white shadow-md'
+                : 'text-slate-500 hover:bg-slate-100/70 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/60 dark:hover:text-white'
             )}
-            title={item.label}
           >
-            <Icon
-              size={22}
-              strokeWidth={isActive ? 2.5 : 2}
-              className={cn(
-                "transition-transform duration-300",
-                isActive ? "scale-100" : "group-hover:scale-110 group-active:scale-95"
-              )}
-            />
-
-            {/* Tooltip on Hover */}
-            <span className="absolute -top-10 scale-0 transition-all rounded bg-slate-900 dark:bg-white text-white dark:text-slate-900 p-2 text-xs font-medium group-hover:scale-100 shadow-[var(--shadow-apple-soft)] pointer-events-none origin-bottom">
-              {item.label}
-            </span>
+            <Icon size={21} strokeWidth={isActive ? 2.5 : 2} className="dock-nav-icon" />
+            <span aria-hidden="true" className={tooltipClasses}>{item.label}</span>
           </Link>
         );
       })}
 
-      <div className="w-[1px] h-8 bg-slate-300/50 dark:bg-slate-700/50 mx-1"></div>
+      <div aria-hidden="true" className="mx-0.5 h-7 w-px shrink-0 bg-slate-300/50 sm:mx-1 sm:h-8 dark:bg-slate-700/50" />
 
       <button
+        type="button"
         onClick={logout}
-        className="group relative flex items-center justify-center w-12 h-12 rounded-full text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-all duration-300 ease-out outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
-        title="Sair"
+        onPointerMove={handleMagneticMove}
+        onPointerLeave={resetMagnetic}
+        className="dock-nav-item group relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-rose-500 outline-none transition-colors duration-300 hover:bg-rose-50 hover:text-rose-600 focus-visible:ring-2 focus-visible:ring-rose-500 min-[400px]:h-11 min-[400px]:w-11 sm:h-12 sm:w-12 dark:hover:bg-rose-500/10"
+        aria-label="Sair"
       >
-        <LogOut size={22} strokeWidth={2} className="group-hover:scale-110 group-active:scale-95 transition-transform duration-300" />
-        <span className="absolute -top-10 scale-0 transition-all rounded bg-rose-600 text-white p-2 text-xs font-medium group-hover:scale-100 shadow-[var(--shadow-apple-soft)] pointer-events-none origin-bottom">
-          Sair
-        </span>
+        <LogOut size={21} strokeWidth={2} className="dock-nav-icon" />
+        <span aria-hidden="true" className={tooltipClasses}>Sair</span>
       </button>
     </nav>
   );

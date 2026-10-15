@@ -1,0 +1,63 @@
+/* Dock superior: entrada suave, brilho dinâmico e microinterações. */
+.top-floating-nav {
+  animation: topDockEnter 550ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes topDockEnter {
+  from { opacity: 0; transform: translateY(-14px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.top-floating-nav::before {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(145px circle at var(--dock-x, 50%) var(--dock-y, 50%), rgba(99, 102, 241, 0.18), transparent 75%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 250ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .top-floating-nav:hover::before,
+  .top-floating-nav:focus-within::before { opacity: 1; }
+}
+
+.dock-nav-icon {
+  transform: translate3d(var(--magnetic-x, 0px), var(--magnetic-y, 0px), 0) scale(1);
+  transition: transform 210ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .dock-nav-item:hover .dock-nav-icon {
+    transform: translate3d(var(--magnetic-x, 0px), var(--magnetic-y, 0px), 0) scale(1.12);
+  }
+  .dock-nav-item:active .dock-nav-icon { transform: scale(0.94); }
+}
+
+.dock-tooltip {
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, 5px);
+  transition: opacity 170ms ease, transform 170ms ease, visibility 170ms;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .dock-nav-item:hover .dock-tooltip { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+}
+
+.dock-nav-item:focus-visible .dock-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .top-floating-nav { animation: none; }
+  .top-floating-nav::before { display: none; }
+  .dock-nav-icon,
+  .dock-nav-item:hover .dock-nav-icon { transform: none; transition: none; }
+  .dock-tooltip { transition: none; }
+}

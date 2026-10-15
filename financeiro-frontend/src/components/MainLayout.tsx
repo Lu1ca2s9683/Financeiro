@@ -24,7 +24,7 @@ export function MainLayout({ children }: { children: React.ReactNode }) {
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center text-slate-400 bg-slate-50 dark:bg-slate-950">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
       </div>
     );
   }
@@ -33,25 +33,23 @@ export function MainLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="relative min-h-screen bg-slate-50 dark:bg-slate-950 font-sans selection:bg-indigo-500/30">
+      {/* Menu centralizado no topo; seletor de loja ao lado em telas grandes. */}
+      <header className="pointer-events-none fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-6 sm:pt-4">
+        <div className="relative mx-auto flex w-full max-w-[1600px] flex-col items-center gap-2 lg:min-h-16">
+          <div className="pointer-events-auto max-w-full">
+            <FloatingNav />
+          </div>
 
-      {/* Floating Top Header (Optional, for global actions like StoreSelector) */}
-      <header className="fixed top-0 left-0 right-0 z-40 px-6 py-4 pointer-events-none flex justify-end">
-        <div className="pointer-events-auto bg-apple-glass rounded-2xl shadow-[var(--shadow-apple-soft)] px-3 py-2 flex items-center gap-4 transition-all hover:shadow-[var(--shadow-apple-hover)]">
-          <StoreSelector />
+          <div className="pointer-events-auto self-end rounded-2xl bg-apple-glass px-3 py-2 shadow-[var(--shadow-apple-soft)] transition-shadow duration-300 hover:shadow-[var(--shadow-apple-hover)] lg:absolute lg:right-0 lg:top-0">
+            <StoreSelector />
+          </div>
         </div>
       </header>
 
-      {/* Main Content Area: scrolls freely below the floating nav */}
-      <main className="relative z-10 w-full max-w-[1600px] mx-auto pb-32 pt-20 px-4 sm:px-8 lg:px-12 transition-all duration-500 ease-in-out">
+      {/* Reservar altura do cabeçalho para evitar sobreposição ao conteúdo. */}
+      <main className="relative z-10 mx-auto w-full max-w-[1600px] px-4 pb-16 pt-44 transition-all duration-500 ease-in-out sm:px-8 sm:pt-40 lg:px-12 lg:pt-28">
         {children}
       </main>
-
-      {/* Apple-style Floating Dock Navigation */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
-         <div className="pointer-events-auto">
-            <FloatingNav />
-         </div>
-      </div>
     </div>
   );
 }
