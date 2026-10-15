@@ -4,6 +4,7 @@ from django.conf import settings
 import jwt
 from ninja.errors import HttpError
 from django.contrib.auth.models import User
+from . import auth as financeiro_auth
 
 SECRET_KEY = settings.SECRET_KEY
 
@@ -22,9 +23,17 @@ class AuthBearer(HttpBearer):
                 return None
 
             user = User.objects.using('vendas').get(id=user_id)
-            if not user.is_active:
+            if not user.is_active or type(loja_id) is not int:
                 return None
 
+            # O JWT sozinho nao comprova vinculo ATUAL com a loja.
+            # Checagem a cada request: o vinculo revogado deixa de funcionar.
+            lojas = financeiro_auth.fetch_user_lojas(user_id, user.is_superuser)
+            loja = next((item for item in lojas if item['id'] == loja_id), None)
+            if loja is None:
+                return None
+
+            request.financeiro_role = loja['role']
             request.user_id = user_id
             request.active_loja_id = loja_id
             request.user = user

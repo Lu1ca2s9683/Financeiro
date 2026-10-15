@@ -57,7 +57,9 @@ class AuthBoundaryTest(TestCase):
 
         self.assertIsNone(result)
 
-    @patch("financeiro_core.app.api.auth.fetch_user_lojas", return_value=[])
+    @patch("financeiro_core.app.api.auth.fetch_user_lojas", return_value=[
+        {"id": 1, "nome": "Loja autorizada", "role": "GESTOR_GRUPO"}
+    ])
     def test_login_uses_isolated_sales_user_without_external_sql(self, mock_fetch_user_lojas):
         client = TestClient(auth_router)
 
@@ -70,7 +72,7 @@ class AuthBoundaryTest(TestCase):
         token = response.json()["token"]
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
         self.assertEqual(payload["user_id"], self.user.id)
-        self.assertIsNone(payload["active_loja_id"])
+        self.assertEqual(payload["active_loja_id"], 1)
         mock_fetch_user_lojas.assert_called_once_with(self.user.id, self.user.is_superuser)
 
     @patch("financeiro_core.app.api.auth.fetch_user_lojas")

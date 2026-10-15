@@ -25,8 +25,8 @@ export default function LoginPage() {
       login(response.token);
     } catch (err: any) {
       console.error(err);
-      if (err.message === 'FORBIDDEN_DEVICE') {
-        setError('Acesso não autorizado neste dispositivo. Este dispositivo ainda não foi liberado pelo administrador global. Após a liberação, tente novamente.');
+      if (err.message === 'FINANCEIRO_ACCESS_DENIED') {
+        setError('Acesso ao Financeiro permitido somente para gestores de grupo e administradores globais autorizados.');
       } else {
         setError('Credenciais inválidas ou erro no servidor.');
       }

@@ -78,6 +78,8 @@ def get_user_from_request(request):
 
     token = auth_header.split(" ")[1]
     payload = decode_token(token)
+    if type(payload.get("user_id")) is not int:
+        raise HttpError(401, "Token invalido")
 
     try:
         user = User.objects.using('vendas').get(id=payload["user_id"])
@@ -86,7 +88,14 @@ def get_user_from_request(request):
     if not user.is_active:
         raise HttpError(401, "Usuário desativado")
 
-    return user, payload.get("active_loja_id")
+    active_loja_id = payload.get("active_loja_id")
+    if type(active_loja_id) is not int:
+        raise HttpError(403, "Loja ativa invalida")
+    lojas = fetch_user_lojas(user.id, user.is_superuser)
+    if not any(loja["id"] == active_loja_id for loja in lojas):
+        raise HttpError(403, "Acesso financeiro revogado ou loja indisponivel")
+    request.financeiro_lojas = lojas
+    return user, active_loja_id
 
 # --- Endpoints ---
 
@@ -107,9 +116,9 @@ def login(request, payload: LoginSchema):
     # Busca as lojas do usuário para definir a loja ativa inicial
     lojas = fetch_user_lojas(user.id, user.is_superuser)
 
-    active_loja_id = None
-    if lojas:
-        active_loja_id = lojas[0]["id"]
+    if not lojas:
+        raise HttpError(403, "Usuario sem permissao para acessar o Financeiro")
+    active_loja_id = lojas[0]["id"]
 
     # Gera o JWT com base no user_id do Orion e com a loja ativa inicial
     token = create_token(user.id, active_loja_id)
@@ -118,61 +127,32 @@ def login(request, payload: LoginSchema):
 # --- Lógica de Permissões via Raw SQL ---
 
 def fetch_user_lojas(user_id: int, is_superuser: bool) -> List[dict]:
-    """Busca as lojas e permissões do usuário direto no banco secundário usando SQL bruto."""
-    lojas_dict = {}
+    """Devolve SOMENTE lojas com autorizacao financeira atual.
 
+    GLOBAL: superusuario ativo do ERP; GESTOR_GRUPO: vinculo na M2M
+    vendas_grupolojas_super_usuarios_grupo. Perfis USUARIO, CONFERENTE
+    e GESTOR de loja NAO sao elegiveis. Sem cache: revogacao imediata.
+    """
     with connections['vendas'].cursor() as cursor:
         if is_superuser:
-            cursor.execute("SELECT id, nome FROM vendas_loja WHERE ativa = true")
-            for row in cursor.fetchall():
-                lojas_dict[row[0]] = {"id": row[0], "nome": row[1], "role": "GLOBAL"}
-        else:
-            # Regra Nova: Superusuário de Grupo
-            cursor.execute('''
-                SELECT l.id, l.nome
-                FROM vendas_loja l
-                INNER JOIN vendas_grupolojas_super_usuarios_grupo gsu ON l.grupo_id = gsu.grupolojas_id
-                WHERE gsu.user_id = %s AND l.ativa = true
-            ''', [user_id])
-            for row in cursor.fetchall():
-                if row[0] not in lojas_dict:
-                    lojas_dict[row[0]] = {"id": row[0], "nome": row[1], "role": "GESTOR_GRUPO"}
+            cursor.execute("SELECT id, nome FROM vendas_loja WHERE ativa = true ORDER BY id")
+            return [
+                {'id': row[0], 'nome': row[1], 'role': 'GLOBAL'}
+                for row in cursor.fetchall()
+            ]
 
-            # Regra 2: Gestor
-            cursor.execute('''
-                SELECT l.id, l.nome
-                FROM vendas_loja l
-                INNER JOIN vendas_loja_gestores lg ON l.id = lg.loja_id
-                WHERE lg.user_id = %s AND l.ativa = true
-            ''', [user_id])
-            for row in cursor.fetchall():
-                if row[0] not in lojas_dict: # Prioridade maior ou mantém se não existir
-                    lojas_dict[row[0]] = {"id": row[0], "nome": row[1], "role": "GESTOR"}
-
-            # Regra 3a: Usuário Base (vendas_userprofile)
-            cursor.execute('''
-                SELECT l.id, l.nome
-                FROM vendas_loja l
-                INNER JOIN vendas_userprofile up ON l.id = up.loja_id
-                WHERE up.user_id = %s AND l.ativa = true
-            ''', [user_id])
-            for row in cursor.fetchall():
-                if row[0] not in lojas_dict:
-                    lojas_dict[row[0]] = {"id": row[0], "nome": row[1], "role": "USUARIO"}
-
-            # Regra 3b: Conferente (vendas_userprofile_lojas_conferencia)
-            cursor.execute('''
-                SELECT l.id, l.nome
-                FROM vendas_loja l
-                INNER JOIN vendas_userprofile_lojas_conferencia uplc ON l.id = uplc.loja_id
-                INNER JOIN vendas_userprofile up ON uplc.userprofile_id = up.id
-                WHERE up.user_id = %s AND l.ativa = true
-            ''', [user_id])
-            for row in cursor.fetchall():
-                if row[0] not in lojas_dict:
-                    lojas_dict[row[0]] = {"id": row[0], "nome": row[1], "role": "CONFERENTE"}
-
-    return list(lojas_dict.values())
+        cursor.execute('''
+            SELECT DISTINCT l.id, l.nome
+            FROM vendas_loja l
+            JOIN vendas_grupolojas_super_usuarios_grupo gsu
+              ON gsu.grupolojas_id = l.grupo_id
+            WHERE gsu.user_id = %s AND l.ativa = true
+            ORDER BY l.id
+        ''', [user_id])
+        return [
+            {'id': row[0], 'nome': row[1], 'role': 'GESTOR_GRUPO'}
+            for row in cursor.fetchall()
+        ]
 
 def mount_grupos(lojas: List[dict]) -> List[dict]:
     """Cria um grupo aglutinador para as lojas encontradas."""
@@ -191,7 +171,7 @@ def mount_grupos(lojas: List[dict]) -> List[dict]:
 def me(request):
     user, active_loja_id = get_user_from_request(request)
 
-    lojas = fetch_user_lojas(user.id, user.is_superuser)
+    lojas = request.financeiro_lojas
     grupos = mount_grupos(lojas)
 
     active_loja = None
@@ -201,9 +181,7 @@ def me(request):
                 active_loja = loja
                 break
 
-    # Fallback para a primeira loja, se houver
-    if not active_loja and lojas:
-        active_loja = lojas[0]
+    # Token de loja revogada nunca migra silenciosamente para outra loja.
 
     return {
         "user": {
@@ -219,7 +197,7 @@ def me(request):
 def switch_loja(request, payload: SwitchLojaSchema):
     user, _ = get_user_from_request(request)
 
-    lojas = fetch_user_lojas(user.id, user.is_superuser)
+    lojas = request.financeiro_lojas
 
     # Valida se o usuário tem acesso à loja
     target_loja = None
