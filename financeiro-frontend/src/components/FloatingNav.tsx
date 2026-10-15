@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, FileText, Settings, PieChart,
-  Wallet, LogOut
+  ClipboardCheck, Wallet, LogOut
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
@@ -16,7 +16,7 @@ const menuItems = [
   { icon: Wallet, label: 'Tesouraria', href: '/tesouraria' },
   { icon: FileText, label: 'Despesas', href: '/despesas' },
   { icon: PieChart, label: 'DRE', href: '/relatorios/dre' },
-  { icon: Settings, label: 'Conferência', href: '/relatorios/conferencia' },
+  { icon: ClipboardCheck, label: 'Conferência', href: '/relatorios/conferencia' },
   { icon: Settings, label: 'Configurações', href: '/configuracoes' },
 ];
 
