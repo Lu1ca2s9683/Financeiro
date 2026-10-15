@@ -38,7 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const fetchMe = async () => {
+  async function fetchMe() {
     try {
       const data = await api.getMe();
       setUser(data.user);
@@ -50,7 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   const login = (newToken: string) => {
     localStorage.setItem('financeiro_token', newToken);
@@ -59,14 +59,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.push('/');
   };
 
-  const logout = () => {
+  function logout() {
     localStorage.removeItem('financeiro_token');
     setUser(null);
     setGrupos([]);
     setActiveLoja(null);
     setToken(null);
     router.push('/login');
-  };
+  }
 
   const switchStore = async (lojaId: number) => {
     try {
