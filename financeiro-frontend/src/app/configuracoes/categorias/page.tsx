@@ -16,17 +16,24 @@ export default function CategoriasPage() {
   const [newGrupo, setNewGrupo] = useState('');
 
   useEffect(() => {
-    // Avoid race condition by ensuring token is available
+    let cancelled = false;
     const token = localStorage.getItem('financeiro_token');
-    if (!token) {
-      setLoading(false);
-      return;
-    }
+    const request = token
+      ? api.getCategorias()
+      : Promise.resolve<Categoria[]>([]);
 
-    api.getCategorias()
-      .then(setCategorias)
+    request
+      .then(data => {
+        if (!cancelled) setCategorias(data);
+      })
       .catch(console.error)
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleSave = async () => {
