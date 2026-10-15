@@ -357,7 +357,7 @@ export const api = {
     });
 
     if (res.status === 403) {
-      throw new Error('FORBIDDEN_DEVICE');
+      throw new Error('FINANCEIRO_ACCESS_DENIED');
     }
 
     if (!res.ok) throw new Error('Falha no login');
