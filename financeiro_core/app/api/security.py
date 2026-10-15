@@ -9,30 +9,28 @@ SECRET_KEY = settings.SECRET_KEY
 
 class AuthBearer(HttpBearer):
     def authenticate(self, request, token):
-        print("DEBUG: Token recebido")
         try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-            print(f"DEBUG: Payload decodificado: {payload}")
+            payload = jwt.decode(
+                token,
+                SECRET_KEY,
+                algorithms=["HS256"],
+                options={"require": ["exp", "user_id"]},
+            )
+            user_id = payload["user_id"]
+            loja_id = payload.get("active_loja_id")
+            if type(user_id) is not int or (loja_id is not None and type(loja_id) is not int):
+                return None
 
-            # Fetch user strictly from the secondary DB to validate
-            user = User.objects.using('vendas').get(id=payload["user_id"])
+            user = User.objects.using('vendas').get(id=user_id)
+            if not user.is_active:
+                return None
 
-            request.user_id = payload["user_id"]
-            request.active_loja_id = payload.get("active_loja_id")
-            request.user = user  # Attach user object to the request
-
+            request.user_id = user_id
+            request.active_loja_id = loja_id
+            request.user = user
             return user
-        except jwt.ExpiredSignatureError as e:
-            print(f"DEBUG: Erro ao validar usuário: {e}")
-            return None
-        except jwt.InvalidTokenError as e:
-            print(f"DEBUG: Erro ao validar usuário: {e}")
-            return None
-        except User.DoesNotExist as e:
-            print(f"DEBUG: Erro ao validar usuário: User {payload.get('user_id')} não encontrado no banco vendas. Erro: {e}")
-            return None
-        except Exception as e:
-            print(f"DEBUG: Erro ao validar usuário: {e}")
+        except (jwt.InvalidTokenError, User.DoesNotExist, KeyError, TypeError, ValueError):
+            # Não registrar tokens ou payloads JWT nos logs.
             return None
 
 def get_current_user_id(request):
