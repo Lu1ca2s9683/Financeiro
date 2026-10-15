@@ -10,19 +10,29 @@ import dj_database_url
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # --- SEGURANÇA ---
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-chave-dev-local-minimo-32-bytes')
+# Nunca utilizar chave fixa ou previsível fora do ambiente de testes dedicado.
+SECRET_KEY = os.environ.get('SECRET_KEY')
+if not SECRET_KEY:
+    if os.environ.get('DJANGO_SETTINGS_MODULE') == 'config.settings_test':
+        SECRET_KEY = 'test-only-placeholder-overridden-by-settings-test'
+    else:
+        from django.core.exceptions import ImproperlyConfigured
+        raise ImproperlyConfigured('SECRET_KEY precisa estar configurada no ambiente.')
 
 # DEBUG será False se estiver no Render
-DEBUG = 'RENDER' not in os.environ
+DEBUG = os.environ.get('DEBUG', 'false').strip().lower() in {'true', '1', 'yes', 'on'}
 
 # --- CONFIGURAÇÃO DE HOSTS ---
 ALLOWED_HOSTS = ['localhost', '127.0.0.1']
-
+ALLOWED_HOSTS.extend(
+    host.strip()
+    for host in os.environ.get('APP_ALLOWED_HOSTS', '').split(',')
+    if host.strip()
+)
 RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
 if RENDER_EXTERNAL_HOSTNAME:
     ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
-else:
-    ALLOWED_HOSTS.append('*')
+# Deliberadamente sem wildcard '*': cadastrar todos os domínios utilizados.
 
 # Proteção CSRF para o domínio do Render
 CSRF_TRUSTED_ORIGINS = []
@@ -97,7 +107,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'financeiro_db',
         'USER': 'postgres',
-        'PASSWORD': '96835967@Luck',
+        'PASSWORD': os.environ.get('DB_PASSWORD', ''),
         'HOST': 'localhost',
         'PORT': '5432',
     },
@@ -105,7 +115,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'loja_producao_backup',
         'USER': 'postgres',
-        'PASSWORD': '96835967@Luck',
+        'PASSWORD': os.environ.get('VENDAS_DB_PASSWORD', ''),
         'HOST': 'localhost',
         'PORT': '5432',
     }
@@ -134,6 +144,11 @@ elif 'RENDER' in os.environ:
 
 # Router para impedir escritas no banco de Vendas
 DATABASE_ROUTERS = ['config.db_routers.VendasRouter']
+
+# Cabeçalhos HTTPS entregues pelo proxy reverso confiável do Render.
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
 
 # --- SENHAS E I18N ---
 AUTH_PASSWORD_VALIDATORS = [

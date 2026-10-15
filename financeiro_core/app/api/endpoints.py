@@ -378,14 +378,19 @@ class PerfilTaxaIn(Schema):
 
 @router.get("/taxas/perfis/", response=List[PerfilTaxaOut])
 def listar_perfis_taxas(request, loja_id: Optional[int] = None):
-    """Lista perfis de taxas, opcionalmente filtrando por loja."""
-    if loja_id:
+    """Lista taxas exclusivamente da loja ativa; filtro explícito não amplia escopo."""
+    active_loja_id = getattr(request, 'active_loja_id', None)
+    if active_loja_id is None:
+        raise HttpError(403, "Nenhuma loja ativa no contexto")
+    if loja_id is not None:
         check_permission(request, loja_id)
+    else:
+        loja_id = active_loja_id
 
-    qs = PerfilTaxaCartao.objects.filter(ativo=True).prefetch_related('taxas')
-    if loja_id:
-        qs = qs.filter(loja_id_externo=loja_id)
-    return qs
+    return PerfilTaxaCartao.objects.filter(
+        ativo=True,
+        loja_id_externo=loja_id,
+    ).prefetch_related('taxas')
 
 
 class VendedorAtivoOut(Schema):

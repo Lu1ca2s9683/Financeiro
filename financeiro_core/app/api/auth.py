@@ -65,7 +65,7 @@ def create_token(user_id: int, active_loja_id: Optional[int] = None):
 
 def decode_token(token: str):
     try:
-        return jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        return jwt.decode(token, SECRET_KEY, algorithms=["HS256"], options={"require": ["exp", "user_id"]})
     except jwt.ExpiredSignatureError:
         raise HttpError(401, "Token expirado")
     except jwt.InvalidTokenError:
@@ -83,6 +83,8 @@ def get_user_from_request(request):
         user = User.objects.using('vendas').get(id=payload["user_id"])
     except User.DoesNotExist:
         raise HttpError(401, "Usuário não encontrado")
+    if not user.is_active:
+        raise HttpError(401, "Usuário desativado")
 
     return user, payload.get("active_loja_id")
 
@@ -94,6 +96,8 @@ def login(request, payload: LoginSchema):
         # Consulta o usuário estritamente no banco de dados secundário (Orion/Vendas)
         user = User.objects.using('vendas').get(username=payload.username)
     except User.DoesNotExist:
+        raise HttpError(401, "Credenciais inválidas")
+    if not user.is_active:
         raise HttpError(401, "Credenciais inválidas")
 
     # Verifica o hash da senha
@@ -213,7 +217,6 @@ def me(request):
 
 @router.post("/switch-loja", response=SwitchLojaOut)
 def switch_loja(request, payload: SwitchLojaSchema):
-    print(f"DEBUG: Trocando para a loja ID {payload.loja_id}")
     user, _ = get_user_from_request(request)
 
     lojas = fetch_user_lojas(user.id, user.is_superuser)
@@ -228,10 +231,8 @@ def switch_loja(request, payload: SwitchLojaSchema):
     if not target_loja:
         raise HttpError(403, "Acesso negado à loja solicitada")
 
-    print("DEBUG: Permissão confirmada")
 
     # Retorna a loja e o novo token no corpo
     new_token = create_token(user.id, target_loja["id"])
-    print("DEBUG: Novo token gerado")
 
     return {"active_loja": target_loja, "token": new_token}

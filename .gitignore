@@ -7,3 +7,5 @@ db.sqlite3
 financeiro-frontend/node_modules/
 financeiro-frontend/.next/
 financeiro-frontend/.env.local
+# Arquivos estaticos gerados
+staticfiles/
