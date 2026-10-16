@@ -51,7 +51,7 @@ def patch_model(text):
 
 class MovimentacaoCaixa(models.Model):'''
     text = once(text, 'class MovimentacaoCaixa(models.Model):', queryset, 'queryset imutavel')
-    text = once(text, "    conta = models.ForeignKey(ContaBancaria, on_delete=models.CASCADE, related_name='movimentacoes')", 
+    text = once(text, "    conta = models.ForeignKey(ContaBancaria, on_delete=models.CASCADE, related_name='movimentacoes')",
                 "    conta = models.ForeignKey(ContaBancaria, on_delete=models.PROTECT, related_name='movimentacoes')", 'FK protegida')
     for old_fk, new_fk, label in (
         (
