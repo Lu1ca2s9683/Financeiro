@@ -1,6 +1,8 @@
-from django.db import models
+from django.db import models, router, transaction
+from django.db.models import F
+from django.core.exceptions import ValidationError
 from django.contrib.auth.models import User
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 # --- Cadastros de Apoio ---
 
@@ -85,19 +87,50 @@ class MovimentacaoCaixa(models.Model):
         verbose_name_plural = "Movimentações de Caixa"
 
     def save(self, *args, **kwargs):
-        # Controle para não duplicar valores se for um update (simples)
-        is_new = self.pk is None
+        # Fase 2A: a insercao e o ajuste de saldo formam uma transacao unica.
+        # Atualizacoes/estornos de movimentos existentes serao tratadas na 2B.
+        if self.pk is not None:
+            return super().save(*args, **kwargs)
 
-        super().save(*args, **kwargs)
+        entradas = {'ENTRADA', 'TRANSFERENCIA_ENTRADA'}
+        saidas = {'SAIDA', 'TRANSFERENCIA_SAIDA'}
+        if self.tipo_movimentacao not in entradas | saidas:
+            raise ValidationError({'tipo_movimentacao': 'Tipo de movimentacao invalido.'})
 
-        # O gatilho atualiza o saldo apenas na inserção inicial para evitar corrupção em edições complexas
-        if is_new:
-            if self.tipo_movimentacao in ['ENTRADA', 'TRANSFERENCIA_ENTRADA']:
-                self.conta.saldo_atual += self.valor
-            elif self.tipo_movimentacao in ['SAIDA', 'TRANSFERENCIA_SAIDA']:
-                self.conta.saldo_atual -= self.valor
+        try:
+            valor = Decimal(str(self.valor))
+        except (InvalidOperation, TypeError, ValueError):
+            raise ValidationError({'valor': 'Valor monetario invalido.'}) from None
 
-            self.conta.save(update_fields=['saldo_atual'])
+        # O campo possui decimal_places=2: nao aceitar frações perdidas
+        # na gravacao do movimento que divergeriam do saldo ajustado.
+        if not valor.is_finite() or valor <= 0 or valor.as_tuple().exponent < -2:
+            raise ValidationError({'valor': 'Informe um valor positivo com ate duas casas decimais.'})
+
+        delta = valor if self.tipo_movimentacao in entradas else -valor
+        using = kwargs.get('using') or router.db_for_write(type(self), instance=self)
+        previous_state = (self.pk, self._state.adding, self._state.db)
+        save_kwargs = {**kwargs, 'using': using}
+
+        try:
+            with transaction.atomic(using=using):
+                super().save(*args, **save_kwargs)
+                # F() executa o incremento diretamente no banco, sem
+                # sobrescrever incrementos feitos por outra transacao.
+                updated = (
+                    ContaBancaria.objects.using(using)
+                    .filter(pk=self.conta_id, loja_id_externo=self.loja_id_externo)
+                    .update(saldo_atual=F('saldo_atual') + delta)
+                )
+                if updated != 1:
+                    raise ValidationError(
+                        'Conta bancaria inexistente ou pertencente a outra loja.'
+                    )
+        except Exception:
+            # Um INSERT pode definir pk antes de um UPDATE falhar; apos
+            # rollback, restaurar tambem o estado Python da instancia.
+            self.pk, self._state.adding, self._state.db = previous_state
+            raise
 
     def __str__(self):
         sinal = "+" if self.tipo_movimentacao in ['ENTRADA', 'TRANSFERENCIA_ENTRADA'] else "-"
