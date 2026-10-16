@@ -61,6 +61,22 @@ class ContaBancaria(models.Model):
     def __str__(self):
         return f"{self.nome} ({self.get_tipo_display()}) - Loja {self.loja_id_externo}"
 
+class MovimentoImutavelQuerySet(models.QuerySet):
+    """Impede mutacoes em massa que escapariam ao save()/delete()."""
+
+    def update(self, **kwargs):
+        raise ValidationError('Movimentacoes financeiras sao imutaveis; utilize estorno.')
+
+    def delete(self):
+        raise ValidationError('Movimentacoes financeiras nao podem ser excluidas.')
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError('Atualizacao em massa de movimentacoes proibida.')
+
+    def bulk_create(self, objs, **kwargs):
+        raise ValidationError('Criacao em massa proibida: use save() para atualizar o saldo.')
+
+
 class MovimentacaoCaixa(models.Model):
     TIPO_MOVIMENTACAO_CHOICES = [
         ('ENTRADA', 'Entrada de Recursos'),
@@ -69,28 +85,35 @@ class MovimentacaoCaixa(models.Model):
         ('TRANSFERENCIA_ENTRADA', 'Transferência - Destino'),
     ]
 
-    conta = models.ForeignKey(ContaBancaria, on_delete=models.CASCADE, related_name='movimentacoes')
+    conta = models.ForeignKey(ContaBancaria, on_delete=models.PROTECT, related_name='movimentacoes')
     tipo_movimentacao = models.CharField(max_length=25, choices=TIPO_MOVIMENTACAO_CHOICES)
     descricao = models.CharField(max_length=255, help_text="Motivo ou descrição do lançamento")
     valor = models.DecimalField(max_digits=15, decimal_places=2)
     data_ocorrencia = models.DateTimeField(help_text="Data e hora reais da movimentação")
 
-    categoria = models.ForeignKey(CategoriaDespesa, on_delete=models.SET_NULL, null=True, blank=True, related_name='movimentacoes_caixa')
-    despesa_vinculada = models.ForeignKey('ContaPagar', on_delete=models.SET_NULL, null=True, blank=True, related_name='pagamentos_caixa')
+    categoria = models.ForeignKey(CategoriaDespesa, on_delete=models.PROTECT, null=True, blank=True, related_name='movimentacoes_caixa')
+    despesa_vinculada = models.ForeignKey('ContaPagar', on_delete=models.PROTECT, null=True, blank=True, related_name='pagamentos_caixa')
 
     loja_id_externo = models.IntegerField(db_index=True)
     criado_por_id = models.IntegerField(null=True, blank=True)
     criado_em = models.DateTimeField(auto_now_add=True)
+    estorno_de = models.OneToOneField(
+        'self', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='estorno',
+    )
+    motivo_estorno = models.TextField(blank=True)
+    grupo_transferencia = models.UUIDField(null=True, blank=True, db_index=True)
+
+    objects = MovimentoImutavelQuerySet.as_manager()
 
     class Meta:
         verbose_name = "Movimentação de Caixa"
         verbose_name_plural = "Movimentações de Caixa"
 
     def save(self, *args, **kwargs):
-        # Fase 2A: a insercao e o ajuste de saldo formam uma transacao unica.
-        # Atualizacoes/estornos de movimentos existentes serao tratadas na 2B.
+        # Fase 2B: somente novos movimentos. Um estorno gera outra linha.
         if self.pk is not None:
-            return super().save(*args, **kwargs)
+            raise ValidationError('Movimentacoes ja registradas sao imutaveis; estorne.')
 
         entradas = {'ENTRADA', 'TRANSFERENCIA_ENTRADA'}
         saidas = {'SAIDA', 'TRANSFERENCIA_SAIDA'}
@@ -109,6 +132,32 @@ class MovimentacaoCaixa(models.Model):
 
         delta = valor if self.tipo_movimentacao in entradas else -valor
         using = kwargs.get('using') or router.db_for_write(type(self), instance=self)
+
+        if self.estorno_de_id is not None:
+            original = type(self).objects.using(using).filter(pk=self.estorno_de_id).first()
+            inversos = {
+                'ENTRADA': 'SAIDA',
+                'SAIDA': 'ENTRADA',
+                'TRANSFERENCIA_SAIDA': 'TRANSFERENCIA_ENTRADA',
+                'TRANSFERENCIA_ENTRADA': 'TRANSFERENCIA_SAIDA',
+            }
+            if original is None or original.estorno_de_id is not None:
+                raise ValidationError('Movimentacao original invalida para estorno.')
+            if not isinstance(self.criado_por_id, int) or self.criado_por_id <= 0:
+                raise ValidationError('Estorno precisa identificar o usuario do ERP.')
+            if len((self.motivo_estorno or '').strip()) < 10:
+                raise ValidationError('O motivo do estorno deve ter ao menos 10 caracteres.')
+            if (
+                self.tipo_movimentacao != inversos[original.tipo_movimentacao]
+                or self.conta_id != original.conta_id
+                or self.loja_id_externo != original.loja_id_externo
+                or valor != original.valor
+                or self.grupo_transferencia != original.grupo_transferencia
+            ):
+                raise ValidationError('Estorno deve compensar exatamente o original.')
+        elif (self.motivo_estorno or '').strip():
+            raise ValidationError('Motivo de estorno sem vinculo com movimento original.')
+
         previous_state = (self.pk, self._state.adding, self._state.db)
         save_kwargs = {**kwargs, 'using': using}
 
@@ -131,6 +180,9 @@ class MovimentacaoCaixa(models.Model):
             # rollback, restaurar tambem o estado Python da instancia.
             self.pk, self._state.adding, self._state.db = previous_state
             raise
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Movimentacoes financeiras nao podem ser excluidas.')
 
     def __str__(self):
         sinal = "+" if self.tipo_movimentacao in ['ENTRADA', 'TRANSFERENCIA_ENTRADA'] else "-"

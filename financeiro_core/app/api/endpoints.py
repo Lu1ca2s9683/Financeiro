@@ -21,6 +21,7 @@ from django.db import IntegrityError, transaction
 from django.core.serializers.json import DjangoJSONEncoder
 from django.core import signing
 from datetime import date, datetime, time
+from uuid import uuid4
 from django.utils import timezone
 
 # Importações dos modelos e serviços
@@ -177,6 +178,7 @@ def registrar_transferencia(request, payload: TransferenciaIn):
         datetime.combine(payload.data, time.min),
         timezone.get_current_timezone(),
     )
+    grupo_transferencia = uuid4()
 
     with transaction.atomic():
         contas = _selecionar_contas_transferencia_bloqueadas(
@@ -194,7 +196,8 @@ def registrar_transferencia(request, payload: TransferenciaIn):
             valor=payload.valor,
             data_ocorrencia=data_ocorrencia,
             loja_id_externo=active_loja_id,
-            criado_por_id=user_id
+            criado_por_id=user_id,
+            grupo_transferencia=grupo_transferencia,
         )
 
         MovimentacaoCaixa.objects.create(
@@ -204,10 +207,148 @@ def registrar_transferencia(request, payload: TransferenciaIn):
             valor=payload.valor,
             data_ocorrencia=data_ocorrencia,
             loja_id_externo=active_loja_id,
-            criado_por_id=user_id
+            criado_por_id=user_id,
+            grupo_transferencia=grupo_transferencia,
         )
 
     return {"success": True, "message": "Transferência realizada com sucesso."}
+
+
+class EstornoMovimentacaoIn(Schema):
+    motivo: str
+
+
+@router.post('/contas/movimentacoes/{movimentacao_id}/estornar', auth=AuthBearer())
+def estornar_movimentacao(request, movimentacao_id: int, payload: EstornoMovimentacaoIn):
+    """Estorna uma entrada/saida ou AMBAS as pontas de transferencia rastreada.
+
+    Reversoes sao novas movimentacoes; nunca mudam nem removem o original.
+    Transferencias legadas sem UUID ficam bloqueadas para estorno automatico.
+    """
+    loja_id = getattr(request, 'active_loja_id', None)
+    user_id = getattr(request, 'user_id', None)
+    if type(loja_id) is not int or type(user_id) is not int or user_id <= 0:
+        raise HttpError(401, 'Sessao financeira invalida.')
+    motivo = (payload.motivo or '').strip()
+    if len(motivo) < 10 or len(motivo) > 1000:
+        raise HttpError(400, 'Informe motivo de 10 a 1000 caracteres.')
+
+    # O evento compensatorio pertence ao periodo ATUAL, nao retroage o caixa.
+    agora = timezone.now()
+    _garantir_periodo_caixa_aberto(loja_id, timezone.localdate(agora))
+
+    with transaction.atomic():
+        original = MovimentacaoCaixa.objects.filter(
+            pk=movimentacao_id, loja_id_externo=loja_id,
+            estorno_de__isnull=True,
+        ).first()
+        if original is None:
+            raise Http404('Movimentacao original nao encontrada na loja ativa.')
+
+        if original.tipo_movimentacao.startswith('TRANSFERENCIA_'):
+            if original.grupo_transferencia is None:
+                raise HttpError(409, 'Transferencia anterior ao rastreamento: estorno automatico indisponivel.')
+            originais = list(MovimentacaoCaixa.objects.filter(
+                loja_id_externo=loja_id,
+                grupo_transferencia=original.grupo_transferencia,
+                estorno_de__isnull=True,
+            ).order_by('id'))
+            if (
+                len(originais) != 2
+                or {m.tipo_movimentacao for m in originais}
+                != {'TRANSFERENCIA_SAIDA', 'TRANSFERENCIA_ENTRADA'}
+                or originais[0].valor != originais[1].valor
+                or originais[0].conta_id == originais[1].conta_id
+            ):
+                raise HttpError(409, 'Transferencia sem par consistente; nenhuma alteracao realizada.')
+        else:
+            if original.grupo_transferencia is not None:
+                raise HttpError(409, 'Agrupamento financeiro inconsistente.')
+            originais = [original]
+
+        ids = [m.pk for m in originais]
+        contas_ids = {m.conta_id for m in originais}
+        # Ordem de locks compativel com registrar_transferencia: contas, depois movimentos.
+        contas = list(ContaBancaria.objects.select_for_update().filter(
+            pk__in=contas_ids, loja_id_externo=loja_id, ativo=True,
+        ).order_by('pk'))
+        if len(contas) != len(contas_ids):
+            raise HttpError(409, 'Existe conta inativa ou indisponivel; estorno nao executado.')
+        bloqueados = list(MovimentacaoCaixa.objects.select_for_update().filter(
+            pk__in=ids, loja_id_externo=loja_id,
+        ).order_by('pk'))
+        if len(bloqueados) != len(ids):
+            raise HttpError(409, 'Movimentacao indisponivel; nenhuma alteracao realizada.')
+        if MovimentacaoCaixa.objects.filter(estorno_de_id__in=ids).exists():
+            raise HttpError(409, 'Movimentacao ja estornada; nenhuma duplicacao permitida.')
+
+        inversos = {
+            'ENTRADA': 'SAIDA',
+            'SAIDA': 'ENTRADA',
+            'TRANSFERENCIA_SAIDA': 'TRANSFERENCIA_ENTRADA',
+            'TRANSFERENCIA_ENTRADA': 'TRANSFERENCIA_SAIDA',
+        }
+        compensacoes = []
+        for mov in bloqueados:
+            compensacoes.append(MovimentacaoCaixa.objects.create(
+                conta_id=mov.conta_id,
+                tipo_movimentacao=inversos[mov.tipo_movimentacao],
+                descricao=f'Estorno do movimento #{mov.pk}',
+                valor=mov.valor,
+                data_ocorrencia=agora,
+                loja_id_externo=loja_id,
+                criado_por_id=user_id,
+                estorno_de=mov,
+                motivo_estorno=motivo,
+                grupo_transferencia=mov.grupo_transferencia,
+            ))
+
+    return {
+        'success': True,
+        'originais': ids,
+        'estornos': [m.pk for m in compensacoes],
+        'message': 'Estorno registrado com rastreabilidade.',
+    }
+
+
+@router.get('/contas/movimentacoes', auth=AuthBearer())
+def listar_movimentacoes_caixa(request, conta_id: Optional[int] = None, limit: int = 100):
+    """Extrato auditavel restrito a loja ativa (ate 200 movimentos por consulta)."""
+    loja_id = getattr(request, 'active_loja_id', None)
+    if type(loja_id) is not int:
+        raise HttpError(401, 'Sessao financeira invalida.')
+    if limit < 1 or limit > 200:
+        raise HttpError(400, 'Limite permitido: 1 a 200 movimentos.')
+    movimentos = MovimentacaoCaixa.objects.filter(
+        loja_id_externo=loja_id,
+    ).select_related('conta').order_by('-id')
+    if conta_id is not None:
+        if not ContaBancaria.objects.filter(pk=conta_id, loja_id_externo=loja_id).exists():
+            raise Http404('Conta nao encontrada na loja ativa.')
+        movimentos = movimentos.filter(conta_id=conta_id)
+    pagina = list(movimentos[:limit])
+    ids_estornados = set(MovimentacaoCaixa.objects.filter(
+        estorno_de_id__in=[m.pk for m in pagina],
+    ).values_list('estorno_de_id', flat=True))
+    return [
+        {
+            'id': m.pk,
+            'conta_id': m.conta_id,
+            'conta_nome': m.conta.nome,
+            'loja_id': m.loja_id_externo,
+            'tipo': m.tipo_movimentacao,
+            'valor': str(m.valor),
+            'descricao': m.descricao,
+            'data_ocorrencia': m.data_ocorrencia.isoformat(),
+            'criado_em': m.criado_em.isoformat(),
+            'criado_por_id': m.criado_por_id,
+            'estorno_de_id': m.estorno_de_id,
+            'estornado': m.pk in ids_estornados,
+            'motivo_estorno': m.motivo_estorno,
+            'grupo_transferencia': str(m.grupo_transferencia) if m.grupo_transferencia else None,
+        }
+        for m in pagina
+    ]
 
 
 class ExtratoItemOut(Schema):
@@ -352,6 +493,8 @@ def excluir_categoria(request, categoria_id: int):
     cat = get_object_or_404(CategoriaDespesa, id=categoria_id)
     if ContaPagar.objects.filter(categoria=cat).exists():
         raise HttpError(400, "Não é possível excluir categoria com despesas vinculadas.")
+    if MovimentacaoCaixa.objects.filter(categoria_id=cat.pk).exists():
+        raise HttpError(409, "Categoria vinculada a movimentações financeiras históricas.")
     cat.delete()
     return {"success": True}
 
@@ -939,6 +1082,8 @@ def excluir_despesa(request, despesa_id: int):
 
     despesa = get_object_or_404(ContaPagar, id=despesa_id, loja_id_externo=active_loja_id)
     _garantir_periodo_caixa_aberto(active_loja_id, despesa.data_transacao)
+    if MovimentacaoCaixa.objects.filter(despesa_vinculada_id=despesa.pk).exists():
+        raise HttpError(409, "Despesa vinculada a movimentações financeiras históricas.")
     despesa.delete()
     return {"success": True, "message": f"Despesa {despesa_id} excluída."}
 
